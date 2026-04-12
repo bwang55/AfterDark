@@ -1,0 +1,42 @@
+{
+  "name": "afterdark",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:static": "NEXT_OUTPUT_MODE=export next build",
+    "preview:static": "python3 -m http.server 4173 --directory out",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cdk:synth": "npm --prefix infra run synth",
+    "cdk:deploy": "npm --prefix infra run deploy"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.6.2",
+    "mapbox-gl": "^3.11.1",
+    "next": "^15.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.147",
+    "@types/mapbox-gl": "^3.4.1",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^17.3.1",
+    "eslint": "^9.20.1",
+    "eslint-config-next": "^15.3.1",
+    "jsdom": "^26.0.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

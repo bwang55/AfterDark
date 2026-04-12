@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+coverage
+.env
+.env.local
+.env.*.local
+cdk.out
+infra/node_modules
+*.log
+.DS_Store
