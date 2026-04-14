@@ -27,6 +27,8 @@ interface AppState {
 
   // ── Filters ──
   selectedCategory: PlaceCategory | null;
+  filterOpenNow: boolean;
+  filterTags: string[];
   timeValue: number;
 
   // ── Map config (persisted) ──
@@ -40,6 +42,7 @@ interface AppState {
 
   // ── Map triggers (not persisted) ──
   resetNorthCount: number;
+  nowLocked: boolean;
 
   // ── Selection ──
   query: string;
@@ -59,8 +62,12 @@ interface AppActions {
   setAiChatMessage: (msg: string) => void;
 
   setSelectedCategory: (cat: PlaceCategory | null) => void;
+  toggleFilterOpenNow: () => void;
+  toggleFilterTag: (tag: string) => void;
+  clearFilters: () => void;
   setTimeValue: (v: number) => void;
   resetToNow: () => void;
+  toggleNowLocked: () => void;
 
   setMapStyle: (s: AppState["mapStyle"]) => void;
   toggleBuildings3d: () => void;
@@ -108,6 +115,8 @@ export const useAppStore = create<AppStore>()(
       aiChatResponse: null,
 
       selectedCategory: null,
+      filterOpenNow: false,
+      filterTags: [],
       timeValue: currentHourValue(),
 
       mapStyle: "afterdark",
@@ -119,6 +128,7 @@ export const useAppStore = create<AppStore>()(
       viewMode: "3d",
 
       resetNorthCount: 0,
+      nowLocked: false,
 
       query: "",
       selectedPlaceId: null,
@@ -181,8 +191,21 @@ export const useAppStore = create<AppStore>()(
 
       // ── Filters ──
       setSelectedCategory: (cat) => set({ selectedCategory: cat }),
-      setTimeValue: (v) => set({ timeValue: v }),
+      toggleFilterOpenNow: () => set((s) => ({ filterOpenNow: !s.filterOpenNow })),
+      toggleFilterTag: (tag) =>
+        set((s) => ({
+          filterTags: s.filterTags.includes(tag)
+            ? s.filterTags.filter((t) => t !== tag)
+            : [...s.filterTags, tag],
+        })),
+      clearFilters: () => set({ filterOpenNow: false, filterTags: [], selectedCategory: null }),
+      setTimeValue: (v) => set({ timeValue: v, nowLocked: false }),
       resetToNow: () => set({ timeValue: currentHourValue() }),
+      toggleNowLocked: () =>
+        set((s) => {
+          if (s.nowLocked) return { nowLocked: false };
+          return { nowLocked: true, timeValue: currentHourValue() };
+        }),
 
       // ── Map ──
       setMapStyle: (s) => set({ mapStyle: s }),
@@ -206,6 +229,8 @@ export const useAppStore = create<AppStore>()(
           hoveredPlaceId: null,
           query: "",
           selectedCategory: null,
+          filterOpenNow: false,
+          filterTags: [],
         }),
     }),
     {

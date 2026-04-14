@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
@@ -14,63 +14,112 @@ const HOURS = Array.from({ length: 24 }, (_, i) => ({
   label: String(i).padStart(2, "0"),
   value: i,
 }));
-const MINUTES = [0, 15, 30, 45].map((m) => ({
-  label: String(m).padStart(2, "0"),
-  value: m,
+const MINUTES = Array.from({ length: 60 }, (_, i) => ({
+  label: String(i).padStart(2, "0"),
+  value: i,
 }));
 
-function WheelCol({
+/* ── Circular wheel — items repeat 3× for seamless wrapping ─────────── */
+
+function CircularWheelCol({
   items,
   selectedIndex,
   onSelect,
+  locked = false,
 }: {
   items: { label: string; value: number }[];
   selectedIndex: number;
   onSelect: (idx: number) => void;
+  locked?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const userScrolling = useRef(false);
-  const syncingRef = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const count = items.length;
+  const homeStart = count; // middle copy is "home"
+  const prevIdx = useRef(selectedIndex);
+  const isProgrammatic = useRef(false);
+  const skipScroll = useRef(false);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const mounted = useRef(false);
 
+  const tripled = useMemo(() => [...items, ...items, ...items], [items]);
+
+  /** Instantly reposition to the equivalent slot in the home (middle) copy. */
+  const recenter = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rawIdx = Math.round(el.scrollTop / ITEM_H);
+    const normalIdx = ((rawIdx % count) + count) % count;
+    const homeIdx = homeStart + normalIdx;
+    if (rawIdx !== homeIdx) {
+      skipScroll.current = true;
+      el.scrollTop = homeIdx * ITEM_H;
+    }
+  }, [count, homeStart]);
+
+  // Mount: jump to home position (no animation)
   useEffect(() => {
     const el = ref.current;
     if (el) {
-      syncingRef.current = true;
-      el.scrollTop = selectedIndex * ITEM_H;
+      el.scrollTop = (homeStart + selectedIndex) * ITEM_H;
+      mounted.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Programmatic smooth scroll when selectedIndex changes
   useEffect(() => {
-    if (userScrolling.current) return;
+    if (!mounted.current) return;
     const el = ref.current;
     if (!el) return;
-    const target = selectedIndex * ITEM_H;
-    if (Math.abs(el.scrollTop - target) > 2) {
-      syncingRef.current = true;
-      el.scrollTop = target;
-    }
-  }, [selectedIndex]);
+
+    const prev = prevIdx.current;
+    prevIdx.current = selectedIndex;
+    if (prev === selectedIndex) return;
+
+    // Shortest circular path
+    const fwd = (selectedIndex - prev + count) % count;
+    const bwd = count - fwd;
+
+    const cur = Math.round(el.scrollTop / ITEM_H);
+    const target =
+      fwd <= bwd ? cur + fwd : cur - bwd;
+    const clamped = Math.max(0, Math.min(count * 3 - 1, target));
+
+    isProgrammatic.current = true;
+    el.scrollTo({ top: clamped * ITEM_H, behavior: "smooth" });
+    // onScroll debounce will recenter once the animation settles
+  }, [selectedIndex, count]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScroll = useCallback(() => {
-    if (syncingRef.current) {
-      syncingRef.current = false;
+    if (skipScroll.current) {
+      skipScroll.current = false;
       return;
     }
-    userScrolling.current = true;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      userScrolling.current = false;
+
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
       const el = ref.current;
       if (!el) return;
-      const idx = Math.round(el.scrollTop / ITEM_H);
-      onSelect(Math.max(0, Math.min(items.length - 1, idx)));
-    }, 120);
-  }, [items.length, onSelect]);
+
+      if (isProgrammatic.current) {
+        isProgrammatic.current = false;
+        recenter();
+        return;
+      }
+
+      if (locked) return;
+
+      const rawIdx = Math.round(el.scrollTop / ITEM_H);
+      const normalIdx = ((rawIdx % count) + count) % count;
+      prevIdx.current = normalIdx;
+      onSelect(normalIdx);
+      requestAnimationFrame(() => recenter());
+    }, 150);
+  }, [count, locked, onSelect, recenter]);
 
   return (
     <div className="relative" style={{ height: HEIGHT, width: 52 }}>
+      {/* Selection highlight */}
       <div
         className="pointer-events-none absolute inset-x-0.5 z-10 rounded-md border border-sky-400/20 bg-sky-400/[0.08]"
         style={{ top: PAD, height: ITEM_H }}
@@ -80,70 +129,90 @@ function WheelCol({
         onScroll={onScroll}
         className="h-full overflow-y-auto"
         style={{
-          scrollSnapType: "y mandatory",
+          scrollSnapType: locked ? undefined : "y mandatory",
           scrollPaddingTop: PAD,
           scrollbarWidth: "none",
           maskImage:
             "linear-gradient(to bottom,transparent 0%,black 25%,black 75%,transparent 100%)",
           WebkitMaskImage:
             "linear-gradient(to bottom,transparent 0%,black 25%,black 75%,transparent 100%)",
+          pointerEvents: locked ? "none" : undefined,
         }}
       >
         <div style={{ height: PAD }} aria-hidden />
-        {items.map((item, i) => (
-          <div
-            key={item.value}
-            className="flex cursor-pointer items-center justify-center select-none"
-            onClick={() => {
-              ref.current?.scrollTo({ top: i * ITEM_H, behavior: "smooth" });
-            }}
-            style={{
-              height: ITEM_H,
-              scrollSnapAlign: "start",
-              fontSize: i === selectedIndex ? 20 : 14,
-              fontWeight: i === selectedIndex ? 600 : 400,
-              opacity: i === selectedIndex ? 1 : 0.3,
-              color: "white",
-              transition: "font-size 150ms, opacity 150ms",
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {item.label}
-          </div>
-        ))}
+        {tripled.map((item, i) => {
+          const normalIdx = i % count;
+          const isSelected = normalIdx === selectedIndex;
+          return (
+            <div
+              key={`${item.value}-${Math.floor(i / count)}`}
+              className="flex items-center justify-center select-none"
+              style={{
+                height: ITEM_H,
+                scrollSnapAlign: "start",
+                fontSize: isSelected ? 20 : 14,
+                fontWeight: isSelected ? 600 : 400,
+                opacity: isSelected ? 1 : 0.3,
+                color: "white",
+                transition: "font-size 150ms, opacity 150ms",
+                fontVariantNumeric: "tabular-nums",
+                cursor: locked ? "default" : "pointer",
+              }}
+            >
+              {item.label}
+            </div>
+          );
+        })}
         <div style={{ height: PAD }} aria-hidden />
       </div>
     </div>
   );
 }
 
+/* ── Helpers ─────────────────────────────────────────────────────────── */
+
 function timeToDisplay(tv: number): string {
   const h24 = ((Math.floor(tv) % 24) + 24) % 24;
-  const m = Math.round((tv - Math.floor(tv)) * 60);
+  const m = Math.round((tv - Math.floor(tv)) * 60) % 60;
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-  return `${h12}:${String(m % 60).padStart(2, "0")} ${h24 >= 12 ? "PM" : "AM"}`;
+  return `${h12}:${String(m).padStart(2, "0")} ${h24 >= 12 ? "PM" : "AM"}`;
 }
+
+/* ── TimeScroll ──────────────────────────────────────────────────────── */
 
 export function TimeScroll() {
   const open = useAppStore((s) => s.timeScrollOpen);
   const toggle = useAppStore((s) => s.toggleTimeScroll);
   const timeValue = useAppStore((s) => s.timeValue);
   const setTimeValue = useAppStore((s) => s.setTimeValue);
-  const resetToNow = useAppStore((s) => s.resetToNow);
+  const nowLocked = useAppStore((s) => s.nowLocked);
+  const toggleNowLocked = useAppStore((s) => s.toggleNowLocked);
 
   const hour24 = ((Math.floor(timeValue) % 24) + 24) % 24;
-  const minute = Math.round((timeValue - Math.floor(timeValue)) * 60);
-  const minuteSnapped = Math.round(minute / 15) * 15;
-  const hourIdx = HOURS.findIndex((h) => h.value === hour24);
-  const minIdx = MINUTES.findIndex((m) => m.value === (minuteSnapped % 60));
+  const minute = Math.round((timeValue - Math.floor(timeValue)) * 60) % 60;
+
+  // ── Real-time tracking when NOW is locked ──
+  useEffect(() => {
+    if (!nowLocked) return;
+    const tick = () => {
+      const now = new Date();
+      const h = now.getHours();
+      const m = now.getMinutes();
+      const val = (h < 6 ? h + 24 : h) + m / 60;
+      // Direct setState to avoid triggering nowLocked = false
+      useAppStore.setState({ timeValue: val });
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [nowLocked]);
 
   const handleHour = useCallback(
     (idx: number) => {
       const h = HOURS[idx].value;
-      const m = minuteSnapped >= 60 ? 0 : minuteSnapped;
-      setTimeValue(h + m / 60);
+      setTimeValue(h + minute / 60);
     },
-    [setTimeValue, minuteSnapped],
+    [setTimeValue, minute],
   );
 
   const handleMinute = useCallback(
@@ -190,29 +259,32 @@ export function TimeScroll() {
                 </span>
                 <button
                   type="button"
-                  onClick={resetToNow}
-                  className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold text-sky-300 transition hover:bg-sky-400/20"
+                  onClick={toggleNowLocked}
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition ${
+                    nowLocked
+                      ? "border-emerald-400/30 bg-emerald-400/20 text-emerald-300"
+                      : "border-sky-400/20 bg-sky-400/10 text-sky-300 hover:bg-sky-400/20"
+                  }`}
                 >
                   NOW
                 </button>
               </div>
 
               <div className="flex items-center justify-center gap-1">
-                <style>
-                  {`.ts-wheel::-webkit-scrollbar{display:none}`}
-                </style>
-                <WheelCol
+                <CircularWheelCol
                   items={HOURS}
-                  selectedIndex={Math.max(0, hourIdx)}
+                  selectedIndex={hour24}
                   onSelect={handleHour}
+                  locked={nowLocked}
                 />
                 <span className="pb-0.5 text-lg font-semibold text-white/30 select-none">
                   :
                 </span>
-                <WheelCol
+                <CircularWheelCol
                   items={MINUTES}
-                  selectedIndex={Math.max(0, minIdx)}
+                  selectedIndex={minute}
                   onSelect={handleMinute}
+                  locked={nowLocked}
                 />
               </div>
             </div>

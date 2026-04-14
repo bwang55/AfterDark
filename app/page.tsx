@@ -65,11 +65,13 @@ export default function HomePage() {
   const setSelectedPlaceId = useAppStore((s) => s.setSelectedPlaceId);
   const query = useAppStore((s) => s.query);
   const selectedCategory = useAppStore((s) => s.selectedCategory);
+  const filterOpenNow = useAppStore((s) => s.filterOpenNow);
+  const filterTags = useAppStore((s) => s.filterTags);
 
   const hour = ((timeValue % 24) + 24) % 24;
   const theme = resolveThemeByHour(hour);
 
-  // ── Filter mock places by time, category, and query ──
+  // ── Filter mock places by time, category, query, and filters ──
   const places = useMemo(() => {
     let list = MOCK_PLACES;
     if (selectedCategory) {
@@ -83,10 +85,18 @@ export default function HomePage() {
           p.vibeTags.some((t) => t.toLowerCase().includes(q)),
       );
     }
+    if (filterOpenNow) {
+      list = list.filter((p) => isPlaceOpen(p, hour));
+    }
+    if (filterTags.length > 0) {
+      list = list.filter((p) =>
+        filterTags.some((tag) => p.vibeTags.includes(tag)),
+      );
+    }
     return list
       .filter((p) => isPlaceOpen(p, hour))
       .map((p) => mockToRanked(p, hour));
-  }, [selectedCategory, query, hour]);
+  }, [selectedCategory, query, filterOpenNow, filterTags, hour]);
 
   // ── Map-specific state ──
   const [userLocation, setUserLocation] = useState<{
