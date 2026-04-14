@@ -931,15 +931,20 @@ const MapCanvasInner = function MapCanvas({
     imgWrap.appendChild(img);
     root.appendChild(imgWrap);
 
-    const photoUrl = `/api/place-photo?name=${encodeURIComponent(place.name)}&lat=${lat}&lng=${lng}`;
-    img.onload = () => {
-      img.style.display = "block";
-      imgWrap.classList.add("ad-popup__img-wrap--loaded");
-    };
-    img.onerror = () => {
+    const photoBase = process.env.NEXT_PUBLIC_PLACE_PHOTO_URL;
+    if (photoBase) {
+      img.onload = () => {
+        img.style.display = "block";
+        imgWrap.classList.add("ad-popup__img-wrap--loaded");
+      };
+      img.onerror = () => {
+        imgWrap.remove();
+      };
+      img.src = `${photoBase}?name=${encodeURIComponent(place.name)}&lat=${lat}&lng=${lng}`;
+    } else {
+      // No photo backend configured — drop the image slot entirely.
       imgWrap.remove();
-    };
-    img.src = photoUrl;
+    }
 
     const name = document.createElement("p");
     name.className = "ad-popup__name";
