@@ -16,6 +16,7 @@ import { SettingButton } from "@/components/ui/SettingButton";
 import { LocateButton } from "@/components/ui/LocateButton";
 import { ResetAreaButton } from "@/components/ui/ResetAreaButton";
 import { ViewModeButton } from "@/components/ui/ViewModeButton";
+import { CompassButton } from "@/components/ui/CompassButton";
 import { MOCK_PLACES, PROVIDENCE_CENTER } from "@/data/mockPlaces";
 import { useAppStore } from "@/store/useAppStore";
 import { resolveThemeByHour } from "@/shared/time-theme";
@@ -140,13 +141,14 @@ export default function HomePage() {
           {/* Top-left: Search */}
           <SearchBox />
 
-          {/* Top-right: Time + Controls stack */}
+          {/* Top-right: Time + Controls + Compass stack */}
           <div className="flex flex-col items-end gap-1.5">
             <div className="flex items-center gap-1.5">
               <ViewModeButton />
               <TimeScroll />
             </div>
             <MapControlPanel />
+            <CompassButton />
           </div>
         </div>
 

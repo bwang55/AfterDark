@@ -62,6 +62,7 @@ export function usePlaces(): RankedPlace[] {
   const timeValue = useAppStore((s) => s.timeValue);
   const query = useAppStore((s) => s.query);
   const selectedCategory = useAppStore((s) => s.selectedCategory);
+  const hiddenCategories = useAppStore((s) => s.hiddenCategories);
   const filterOpenNow = useAppStore((s) => s.filterOpenNow);
   const filterTags = useAppStore((s) => s.filterTags);
 
@@ -98,6 +99,9 @@ export function usePlaces(): RankedPlace[] {
     if (HAS_API) return [];
 
     let list = MOCK_PLACES;
+    if (hiddenCategories.length > 0) {
+      list = list.filter((p) => !hiddenCategories.includes(p.category));
+    }
     if (selectedCategory) {
       list = list.filter((p) => p.category === selectedCategory);
     }
@@ -120,7 +124,7 @@ export function usePlaces(): RankedPlace[] {
     return list
       .filter((p) => isPlaceOpen(p, hour))
       .map((p) => mockToRanked(p, hour));
-  }, [selectedCategory, query, filterOpenNow, filterTags, hour]);
+  }, [selectedCategory, hiddenCategories, query, filterOpenNow, filterTags, hour]);
 
   return HAS_API ? apiPlaces : localPlaces;
 }

@@ -1,26 +1,31 @@
 "use client";
 
-import { SlidersHorizontal, ChevronDown, ChevronUp, Compass } from "lucide-react";
+import { SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import { useThemeMode } from "@/hooks/useThemeMode";
+import { CATEGORIES } from "@/data/mockPlaces";
+
+const CATEGORY_COLORS: Record<string, string> = {
+  bars: "#F59E0B",
+  food: "#10B981",
+  music: "#8B5CF6",
+  clubs: "#EC4899",
+};
 
 export function MapControlPanel() {
   const open = useAppStore((s) => s.mapControlOpen);
   const toggle = useAppStore((s) => s.toggleMapControl);
-  const mapStyle = useAppStore((s) => s.mapStyle);
-  const setMapStyle = useAppStore((s) => s.setMapStyle);
   const buildings3d = useAppStore((s) => s.buildings3d);
   const toggleBuildings = useAppStore((s) => s.toggleBuildings3d);
-  const showHouseNumbers = useAppStore((s) => s.showHouseNumbers);
-  const toggleHouseNumbers = useAppStore((s) => s.toggleHouseNumbers);
-  const displayMode = useAppStore((s) => s.displayMode);
-  const setDisplayMode = useAppStore((s) => s.setDisplayMode);
   const mapPitch = useAppStore((s) => s.mapPitch);
   const setMapPitch = useAppStore((s) => s.setMapPitch);
-  const resetNorth = useAppStore((s) => s.resetNorth);
   const walkingCircles = useAppStore((s) => s.walkingCircles);
   const toggleWalkingCircles = useAppStore((s) => s.toggleWalkingCircles);
+  const showPoiLabels = useAppStore((s) => s.showPoiLabels);
+  const togglePoiLabels = useAppStore((s) => s.togglePoiLabels);
+  const hiddenCategories = useAppStore((s) => s.hiddenCategories);
+  const toggleCategory = useAppStore((s) => s.toggleCategoryVisibility);
   const isLight = useThemeMode();
 
   return (
@@ -59,7 +64,45 @@ export function MapControlPanel() {
             }`}
           >
             <div className="space-y-3 p-3">
-              {/* Camera controls */}
+              {/* Legend */}
+              <div>
+                <span
+                  className={`text-[10px] font-medium uppercase tracking-widest ${
+                    isLight ? "text-slate-400" : "text-white/30"
+                  }`}
+                >
+                  Legend
+                </span>
+                <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
+                  {CATEGORIES.map(({ key, label }) => {
+                    const hidden = hiddenCategories.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => toggleCategory(key)}
+                        className={`flex items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition ${
+                          hidden
+                            ? "opacity-35"
+                            : isLight
+                              ? "hover:bg-black/[0.04]"
+                              : "hover:bg-white/[0.06]"
+                        }`}
+                      >
+                        <span
+                          className="inline-block h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/20 transition-opacity"
+                          style={{ backgroundColor: hidden ? "gray" : CATEGORY_COLORS[key] }}
+                        />
+                        <span className={`text-[11px] ${isLight ? "text-slate-500" : "text-white/60"}`}>
+                          {label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Camera */}
               <div>
                 <span
                   className={`text-[10px] font-medium uppercase tracking-widest ${
@@ -68,93 +111,34 @@ export function MapControlPanel() {
                 >
                   Camera
                 </span>
-                <div className="mt-2 space-y-2.5">
-                  {/* Pitch slider */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[11px] ${isLight ? "text-slate-500" : "text-white/60"}`}>
-                        Tilt
-                      </span>
-                      <span
-                        className={`text-[10px] tabular-nums ${isLight ? "text-slate-400" : "text-white/30"}`}
-                      >
-                        {mapPitch}°
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={78}
-                      step={1}
-                      value={mapPitch}
-                      onChange={(e) => setMapPitch(Number(e.target.value))}
-                      className={`h-1 w-full cursor-pointer appearance-none rounded-full accent-sky-400 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-sky-400 [&::-webkit-slider-thumb]:shadow-md ${
-                        isLight ? "bg-black/10" : "bg-white/10"
-                      }`}
-                    />
-                    <div
-                      className={`flex justify-between text-[9px] ${isLight ? "text-slate-300" : "text-white/20"}`}
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[11px] ${isLight ? "text-slate-500" : "text-white/60"}`}>
+                      Tilt
+                    </span>
+                    <span
+                      className={`text-[10px] tabular-nums ${isLight ? "text-slate-400" : "text-white/30"}`}
                     >
-                      <span>Top-down</span>
-                      <span>Street</span>
-                    </div>
+                      {mapPitch}°
+                    </span>
                   </div>
-
-                  {/* Reset North */}
-                  <button
-                    type="button"
-                    onClick={resetNorth}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] transition ${
-                      isLight
-                        ? "text-slate-500 hover:bg-black/[0.04] hover:text-slate-700"
-                        : "text-white/60 hover:bg-white/[0.06] hover:text-white/80"
+                  <input
+                    type="range"
+                    min={0}
+                    max={78}
+                    step={1}
+                    value={mapPitch}
+                    onChange={(e) => setMapPitch(Number(e.target.value))}
+                    className={`h-1 w-full cursor-pointer appearance-none rounded-full accent-sky-400 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-sky-400 [&::-webkit-slider-thumb]:shadow-md ${
+                      isLight ? "bg-black/10" : "bg-white/10"
                     }`}
+                  />
+                  <div
+                    className={`flex justify-between text-[9px] ${isLight ? "text-slate-300" : "text-white/20"}`}
                   >
-                    <Compass className="h-3.5 w-3.5" />
-                    <span>Reset North</span>
-                  </button>
-                </div>
-
-                {/* Gesture hint */}
-                <p
-                  className={`mt-1.5 text-[9px] leading-relaxed ${isLight ? "text-slate-300" : "text-white/20"}`}
-                >
-                  Right-drag to rotate · Two-finger drag to tilt
-                </p>
-              </div>
-
-              {/* Map style */}
-              <div>
-                <span
-                  className={`text-[10px] font-medium uppercase tracking-widest ${
-                    isLight ? "text-slate-400" : "text-white/30"
-                  }`}
-                >
-                  Map Style
-                </span>
-                <div className="mt-1.5 flex gap-1">
-                  {(
-                    [
-                      ["afterdark", "Afterdark"],
-                      ["satellite", "Satellite"],
-                      ["minimal", "Minimal"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setMapStyle(key)}
-                      className={`flex-1 rounded-lg py-1.5 text-[10px] font-medium transition ${
-                        mapStyle === key
-                          ? isLight ? "bg-sky-500/15 text-sky-600" : "bg-sky-400/15 text-sky-300"
-                          : isLight
-                            ? "text-slate-400 hover:bg-black/[0.04] hover:text-slate-600"
-                            : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                    <span>Top-down</span>
+                    <span>Street</span>
+                  </div>
                 </div>
               </div>
 
@@ -167,9 +151,9 @@ export function MapControlPanel() {
                   isLight={isLight}
                 />
                 <Toggle
-                  label="House Numbers"
-                  checked={showHouseNumbers}
-                  onChange={toggleHouseNumbers}
+                  label="Shop Names"
+                  checked={showPoiLabels}
+                  onChange={togglePoiLabels}
                   isLight={isLight}
                 />
                 <Toggle
@@ -195,40 +179,6 @@ export function MapControlPanel() {
                   </span>
                 </div>
               )}
-
-              {/* Display mode */}
-              <div>
-                <span
-                  className={`text-[10px] font-medium uppercase tracking-widest ${
-                    isLight ? "text-slate-400" : "text-white/30"
-                  }`}
-                >
-                  Display
-                </span>
-                <div className="mt-1.5 flex gap-1">
-                  {(
-                    [
-                      ["markers", "Markers"],
-                      ["heatmap", "Heatmap"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setDisplayMode(key)}
-                      className={`flex-1 rounded-lg py-1.5 text-[10px] font-medium transition ${
-                        displayMode === key
-                          ? isLight ? "bg-sky-500/15 text-sky-600" : "bg-sky-400/15 text-sky-300"
-                          : isLight
-                            ? "text-slate-400 hover:bg-black/[0.04] hover:text-slate-600"
-                            : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </motion.div>
         )}

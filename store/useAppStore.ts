@@ -30,6 +30,7 @@ interface AppState {
 
   // ── Filters ──
   selectedCategory: PlaceCategory | null;
+  hiddenCategories: PlaceCategory[];
   filterOpenNow: boolean;
   filterTags: string[];
   timeValue: number;
@@ -37,6 +38,7 @@ interface AppState {
   // ── Map config (persisted) ──
   mapStyle: "afterdark" | "satellite" | "minimal";
   buildings3d: boolean;
+  showPoiLabels: boolean;
   showHouseNumbers: boolean;
   displayMode: "markers" | "heatmap";
   mapPitch: number;
@@ -65,6 +67,7 @@ interface AppActions {
   setAiChatMessage: (msg: string) => void;
 
   setSelectedCategory: (cat: PlaceCategory | null) => void;
+  toggleCategoryVisibility: (cat: PlaceCategory) => void;
   toggleFilterOpenNow: () => void;
   toggleFilterTag: (tag: string) => void;
   clearFilters: () => void;
@@ -74,6 +77,7 @@ interface AppActions {
 
   setMapStyle: (s: AppState["mapStyle"]) => void;
   toggleBuildings3d: () => void;
+  togglePoiLabels: () => void;
   toggleHouseNumbers: () => void;
   setDisplayMode: (m: AppState["displayMode"]) => void;
   setMapPitch: (p: number) => void;
@@ -104,12 +108,14 @@ export const useAppStore = create<AppStore>()(
       aiChatMessage: "",
 
       selectedCategory: null,
+      hiddenCategories: [],
       filterOpenNow: false,
       filterTags: [],
       timeValue: currentHourValue(),
 
       mapStyle: "afterdark",
       buildings3d: true,
+      showPoiLabels: false,
       showHouseNumbers: false,
       displayMode: "markers",
       mapPitch: 72,
@@ -275,6 +281,12 @@ export const useAppStore = create<AppStore>()(
 
       // ── Filters ──
       setSelectedCategory: (cat) => set({ selectedCategory: cat }),
+      toggleCategoryVisibility: (cat) =>
+        set((s) => ({
+          hiddenCategories: s.hiddenCategories.includes(cat)
+            ? s.hiddenCategories.filter((c) => c !== cat)
+            : [...s.hiddenCategories, cat],
+        })),
       toggleFilterOpenNow: () =>
         set((s) => ({ filterOpenNow: !s.filterOpenNow })),
       toggleFilterTag: (tag) =>
@@ -300,6 +312,7 @@ export const useAppStore = create<AppStore>()(
       // ── Map ──
       setMapStyle: (s) => set({ mapStyle: s }),
       toggleBuildings3d: () => set((s) => ({ buildings3d: !s.buildings3d })),
+      togglePoiLabels: () => set((s) => ({ showPoiLabels: !s.showPoiLabels })),
       toggleHouseNumbers: () =>
         set((s) => ({ showHouseNumbers: !s.showHouseNumbers })),
       setDisplayMode: (m) => set({ displayMode: m }),
@@ -334,12 +347,14 @@ export const useAppStore = create<AppStore>()(
         timeScrollOpen: s.timeScrollOpen,
         mapStyle: s.mapStyle,
         buildings3d: s.buildings3d,
+        showPoiLabels: s.showPoiLabels,
         showHouseNumbers: s.showHouseNumbers,
         displayMode: s.displayMode,
         mapPitch: s.mapPitch,
         walkingCircles: s.walkingCircles,
         viewMode: s.viewMode,
         timeValue: s.timeValue,
+        hiddenCategories: s.hiddenCategories,
       }),
     },
   ),

@@ -118,7 +118,7 @@ function pulseOpacityExpression(alpha: number): ExpressionSpecification {
   return ["max", alpha * 0.55, ["*", alpha, ["coalesce", ["get", "visibility"], 0.7]]] as ExpressionSpecification;
 }
 
-function ensurePlaceLayers(map: Map): void {
+function ensurePlaceLayers(map: Map, mobile = false): void {
   if (!map.getSource(PLACE_SOURCE_ID)) {
     map.addSource(PLACE_SOURCE_ID, {
       type: "geojson",
@@ -126,7 +126,8 @@ function ensurePlaceLayers(map: Map): void {
     });
   }
 
-  if (!map.getLayer(PLACE_PULSE_LAYER_ID)) {
+  // Mobile: skip pulse layer entirely — saves one full circle layer of GPU work
+  if (!mobile && !map.getLayer(PLACE_PULSE_LAYER_ID)) {
     map.addLayer({
       id: PLACE_PULSE_LAYER_ID,
       type: "circle",
@@ -138,7 +139,7 @@ function ensurePlaceLayers(map: Map): void {
         "circle-opacity": pulseOpacityExpression(0.2),
         "circle-blur": 0.86,
         "circle-emissive-strength": 1,
-        "circle-pitch-alignment": "map",
+        "circle-pitch-alignment": "viewport",
         "circle-radius-transition": { duration: 260, delay: 0 },
         "circle-opacity-transition": { duration: 260, delay: 0 },
       },
@@ -152,13 +153,17 @@ function ensurePlaceLayers(map: Map): void {
       source: PLACE_SOURCE_ID,
       layout: { "circle-sort-key": 0 },
       paint: {
-        "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 7.8, 14, 17.5],
+        // Mobile: smaller radius + less blur = cheaper GPU fill
+        "circle-radius": mobile
+          ? ["interpolate", ["linear"], ["zoom"], 8, 5, 14, 10]
+          : ["interpolate", ["linear"], ["zoom"], 8, 7.8, 14, 17.5],
         "circle-color": "#22D3EE",
-        // Minimum 0.38 so glow is always seen against dark map
-        "circle-opacity": ["max", 0.38, ["*", 0.55, ["coalesce", ["get", "visibility"], 0.8]]],
-        "circle-blur": 0.9,
+        "circle-opacity": mobile
+          ? 0.3
+          : ["max", 0.38, ["*", 0.55, ["coalesce", ["get", "visibility"], 0.8]]],
+        "circle-blur": mobile ? 0.5 : 0.9,
         "circle-emissive-strength": 1,
-        "circle-pitch-alignment": "map",
+        "circle-pitch-alignment": "viewport",
         "circle-opacity-transition": { duration: 360, delay: 0 },
         "circle-color-transition": { duration: 380, delay: 0 },
       },
@@ -181,10 +186,9 @@ function ensurePlaceLayers(map: Map): void {
           0.72,
           ["*", 0.92, ["coalesce", ["get", "visibility"], 0.8]],
         ],
-        // Minimum 0.68 — closed places are still clearly visible dots
         "circle-opacity": ["max", 0.68, ["coalesce", ["get", "visibility"], 0.8]],
         "circle-emissive-strength": 1,
-        "circle-pitch-alignment": "map",
+        "circle-pitch-alignment": "viewport",
         "circle-opacity-transition": { duration: 360, delay: 0 },
         "circle-color-transition": { duration: 380, delay: 0 },
         "circle-stroke-opacity-transition": { duration: 360, delay: 0 },
@@ -204,7 +208,7 @@ function ensurePlaceLayers(map: Map): void {
         "circle-blur": 0.7,
         "circle-opacity": 0.36,
         "circle-emissive-strength": 1,
-        "circle-pitch-alignment": "map",
+        "circle-pitch-alignment": "viewport",
         "circle-opacity-transition": { duration: 220, delay: 0 },
       },
       filter: ["==", ["get", "id"], "__none__"],
@@ -249,25 +253,31 @@ function resolveLightPreset(timeValue: number): string {
   return "night";
 }
 
+// Debounced lightPreset updater — prevents rapid style.load events during
+// time scrubbing which cause terrain to re-add and the map to "jump in place".
+let _presetTimer: ReturnType<typeof setTimeout> | null = null;
+
 function applyTheme(map: Map, timeValue: number): void {
   const quantizedTime = Math.round(timeValue * 2) / 2;
   const pointPaint = pointPaintForTime(quantizedTime);
 
-  // Read the ACTUAL current lightPreset from the map instead of relying on a
-  // cache. This eliminates all stale-cache scenarios (style.load resets, HMR,
-  // Error Boundary remount, synchronous re-entrancy from style.load handlers).
+  // Debounce lightPreset changes: only apply after 400ms of no time changes.
+  // This prevents style.load spam during continuous scrolling.
   const desiredPreset = resolveLightPreset(timeValue);
-  try {
-    const currentPreset = map.getConfigProperty("basemap", "lightPreset");
-    if (currentPreset !== desiredPreset) {
-      map.setConfigProperty("basemap", "lightPreset", desiredPreset);
+  if (_presetTimer) clearTimeout(_presetTimer);
+  _presetTimer = setTimeout(() => {
+    try {
+      const currentPreset = map.getConfigProperty("basemap", "lightPreset");
+      if (currentPreset !== desiredPreset) {
+        map.setConfigProperty("basemap", "lightPreset", desiredPreset);
+      }
+    } catch {
+      // Style not ready or API unavailable
     }
-  } catch {
-    // Style not ready or API unavailable — skip, will retry on next effect / style.load
-  }
+  }, 400);
 
-  // Always apply point colors. setPaintProperty is cheap, and style.load
-  // recreates layers with default colors, so we must repaint every time.
+  // Always apply point colors immediately — setPaintProperty is cheap
+  // and doesn't trigger style.load.
   if (map.getLayer(PLACE_PULSE_LAYER_ID)) {
     map.setPaintProperty(PLACE_PULSE_LAYER_ID, "circle-color", pointPaint.glowColor);
   }
@@ -284,6 +294,96 @@ function applyTheme(map: Map, timeValue: number): void {
     map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-color", pointPaint.activeColor);
   }
 }
+
+// ── 3D clip: only render detailed 3D models in a ~2km diameter around center ──
+// Mapbox Standard style's show3dObjects renders ALL 3D landmarks + buildings
+// across the entire viewport. We keep show3dObjects ON for full-fidelity models,
+// but add a "clip" layer that restricts rendering to a small circle around the
+// camera center. Features outside the clip are NOT rendered (real GPU savings,
+// not just visual masking).
+const CLIP_SOURCE = "clip-area-src";
+const CLIP_LAYER = "center-3d-clip";
+const CLIP_RADIUS_DEG = 0.005; // ~500m radius → 1km diameter at mid-latitudes
+
+function clipCircleGeoJson(center: { lng: number; lat: number }) {
+  // The clip layer REMOVES content inside its polygon.
+  // To keep only the center area, we create a world-covering polygon
+  // with a hole (donut) — everything outside the hole gets clipped away.
+  const r = CLIP_RADIUS_DEG;
+  const N = 16;
+
+  // Outer ring: entire world (counterclockwise)
+  const world: [number, number][] = [
+    [-180, -85], [-180, 85], [180, 85], [180, -85], [-180, -85],
+  ];
+
+  // Inner ring (hole): center circle, clockwise winding
+  const hole: [number, number][] = [];
+  for (let i = N; i >= 0; i--) {
+    const a = (i / N) * 2 * Math.PI;
+    hole.push([
+      center.lng + r * Math.cos(a),
+      center.lat + r * 0.82 * Math.sin(a),
+    ]);
+  }
+
+  return {
+    type: "FeatureCollection" as const,
+    features: [{
+      type: "Feature" as const,
+      geometry: { type: "Polygon" as const, coordinates: [world, hole] },
+      properties: {},
+    }],
+  };
+}
+
+// GeoJSON that clips EVERYTHING (no hole) → fully flat map
+function clipFullWorldGeoJson() {
+  return {
+    type: "FeatureCollection" as const,
+    features: [{
+      type: "Feature" as const,
+      geometry: {
+        type: "Polygon" as const,
+        coordinates: [[[-180, -85], [-180, 85], [180, 85], [180, -85], [-180, -85]]],
+      },
+      properties: {},
+    }],
+  };
+}
+
+function ensureClipLayer(map: Map): void {
+  if (!map.getSource(CLIP_SOURCE)) {
+    // Start with full-world clip (flat) — will switch to donut at high zoom
+    map.addSource(CLIP_SOURCE, {
+      type: "geojson",
+      data: clipFullWorldGeoJson(),
+    });
+  }
+  if (!map.getLayer(CLIP_LAYER)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (map.addLayer as any)({
+      id: CLIP_LAYER,
+      type: "clip",
+      source: CLIP_SOURCE,
+      layout: { "clip-layer-types": ["model", "symbol"] },
+    });
+  }
+}
+
+// Switch clip data based on zoom:
+// zoom < 15.5 → full world clip → all 3D removed → flat
+// zoom ≥ 15.5 → donut clip → only center ~1km has 3D
+function updateClipForCamera(map: Map): void {
+  const src = map.getSource(CLIP_SOURCE) as GeoJSONSource | undefined;
+  if (!src) return;
+  if (map.getZoom() < 15.5) {
+    src.setData(clipFullWorldGeoJson());
+  } else {
+    src.setData(clipCircleGeoJson(map.getCenter()));
+  }
+}
+
 
 const USER_LOCATION_SOURCE = "user-location-source";
 const USER_LOCATION_LAYER = "user-location-dot";
@@ -372,6 +472,7 @@ const MapCanvasInner = function MapCanvas({
   const userLocationRef = useRef(userLocation);
   const viewportChangeRef = useRef<MapCanvasProps["onViewportChange"]>(onViewportChange);
   const lastViewportKeyRef = useRef<string | null>(null);
+  const mobileRef = useRef(false);
   const pulseFrameRef = useRef<number | null>(null);
   const popupRef = useRef<mapboxgl.Popup | null>(null);
   const popupCloseHandler = useCallback(() => {
@@ -394,6 +495,7 @@ const MapCanvasInner = function MapCanvas({
 
   // ── Store-driven map controls ──
   const storeBuildings3d = useAppStore((s) => s.buildings3d);
+  const storeShowPoiLabels = useAppStore((s) => s.showPoiLabels);
   const storeMapPitch = useAppStore((s) => s.mapPitch);
   const storeResetNorthCount = useAppStore((s) => s.resetNorthCount);
   const setStoreMapPitch = useAppStore((s) => s.setMapPitch);
@@ -406,6 +508,14 @@ const MapCanvasInner = function MapCanvas({
       cancelAnimationFrame(orbitFrameRef.current);
       orbitFrameRef.current = null;
     }
+    // Unfreeze popup — restore Mapbox-managed positioning
+    const popupEl = popupRef.current?.getElement();
+    if (popupEl) {
+      popupEl.style.position = "";
+      popupEl.style.left = "";
+      popupEl.style.top = "";
+      popupEl.style.transform = "";
+    }
   }, []);
 
   const startOrbit = useCallback(
@@ -414,9 +524,22 @@ const MapCanvasInner = function MapCanvas({
       if (!map) return;
       stopOrbit();
       orbitActiveRef.current = true;
+
+      // Freeze popup position during orbit to prevent terrain-induced jitter.
+      // Snapshot its current screen rect and lock it with CSS.
+      const popup = popupRef.current;
+      const popupEl = popup?.getElement();
+      if (popupEl) {
+        const rect = popupEl.getBoundingClientRect();
+        popupEl.style.position = "fixed";
+        popupEl.style.left = `${rect.left}px`;
+        popupEl.style.top = `${rect.top}px`;
+        popupEl.style.transform = "none";
+      }
+
       const startBearing = map.getBearing();
       const startTime = performance.now();
-      const SPEED = 3; // degrees per second — full rotation in ~120s
+      const SPEED = 3;
       const tick = () => {
         const m = mapRef.current;
         if (!orbitActiveRef.current || !m) return;
@@ -500,6 +623,10 @@ const MapCanvasInner = function MapCanvas({
 
     mapboxgl.accessToken = token;
 
+    // Detect mobile/low-power devices for aggressive perf tuning
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+
     let map: Map;
     try {
       map = new mapboxgl.Map({
@@ -507,13 +634,18 @@ const MapCanvasInner = function MapCanvas({
         style: "mapbox://styles/mapbox/standard",
         center: [-71.4128, 41.824],
         zoom: 15.5,
-        pitch: 72,
+        pitch: isMobile ? 45 : 72,
         bearing: -8,
-        maxPitch: 78,
+        maxPitch: isMobile ? 55 : 78,
+        // Lower maxZoom = fewer detailed tiles = fewer 3D models loaded
+        maxZoom: isMobile ? 17.5 : 20,
         attributionControl: false,
-        antialias: true,
+        antialias: !isMobile,
         fadeDuration: 0,
+        maxTileCacheSize: isMobile ? 20 : 80,
+        renderWorldCopies: false,
       });
+      mobileRef.current = isMobile;
     } catch (err) {
       console.error("[MapCanvas] Failed to initialize map:", err);
       setMapEnabled(false);
@@ -547,19 +679,28 @@ const MapCanvasInner = function MapCanvas({
     };
 
     const syncCustomLayers = () => {
-      ensurePlaceLayers(map);
+      const mobile = mobileRef.current;
+      ensurePlaceLayers(map, mobile);
       ensureUserLocationLayers(map);
+      ensureClipLayer(map);
 
-      // Restore 3D terrain (lost on style.load)
+      // Restore 3D terrain (lost on style.load).
+      // Start with exaggeration 0 so there's no visual jump while DEM tiles load,
+      // then ramp up once the map is idle.
       if (!map.getSource("mapbox-dem")) {
         try {
           map.addSource("mapbox-dem", {
             type: "raster-dem",
             url: "mapbox://mapbox.mapbox-terrain-dem-v1",
-            tileSize: 512,
-            maxzoom: 14,
+            tileSize: mobile ? 256 : 512,
+            maxzoom: mobile ? 11 : 14,
           });
-          map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
+          map.setTerrain({ source: "mapbox-dem", exaggeration: 0.01 });
+          map.once("idle", () => {
+            try {
+              map.setTerrain({ source: "mapbox-dem", exaggeration: mobile ? 2.0 : 3.0 });
+            } catch { /* noop */ }
+          });
         } catch { /* noop */ }
       }
 
@@ -580,36 +721,40 @@ const MapCanvasInner = function MapCanvas({
     // trigger style.load once — that's expected and handled below.
     map.once("load", () => {
       try {
-        // Set lightPreset FIRST so it batches with label configs into a single
-        // style reload, avoiding a flash of wrong colors on initial load.
         map.setConfigProperty("basemap", "lightPreset", resolveLightPreset(timeValueRef.current));
         map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
         map.setConfigProperty("basemap", "showTransitLabels", false);
         map.setConfigProperty("basemap", "showRoadLabels", true);
         map.setConfigProperty("basemap", "showPlaceLabels", true);
+        // Keep Standard style's full-fidelity 3D objects ON — the clip layer
+        // (ensureClipLayer) limits rendering to a ~2km circle around camera center.
         map.setConfigProperty("basemap", "show3dObjects", true);
 
-        // 3D terrain — makes hills/mountains visible (e.g. SF, downtown valleys)
+        // 3D terrain (hills/valleys)
         map.addSource("mapbox-dem", {
           type: "raster-dem",
           url: "mapbox://mapbox.mapbox-terrain-dem-v1",
-          tileSize: 512,
-          maxzoom: 14,
+          tileSize: isMobile ? 256 : 512,
+          maxzoom: isMobile ? 11 : 14,
         });
-        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
+        map.setTerrain({ source: "mapbox-dem", exaggeration: isMobile ? 2.0 : 3.0 });
       } catch { /* noop */ }
       syncCustomLayers();
       setMapLoaded(true);
     });
 
     // style.load fires after the initial config above, and whenever lightPreset
-    // changes. Only re-sync custom layers here — no setConfigProperty calls that
-    // would cascade into another style.load and cause label flickering.
+    // changes. Re-sync custom layers (including our building layer).
     map.on("style.load", () => {
       syncCustomLayers();
       setMapLoaded(true);
     });
     map.on("moveend", emitViewport);
+
+    // Update 3D clip on camera move/zoom — handles both center tracking
+    // and early-flatten at low zoom.
+    const updateClipArea = () => updateClipForCamera(map);
+    map.on("moveend", updateClipArea);
 
     // Track whether the current click landed on a place pin.
     // Both the layer-specific handler and the generic handler fire
@@ -664,6 +809,7 @@ const MapCanvasInner = function MapCanvas({
         pulseFrameRef.current = null;
       }
       map.off("moveend", emitViewport);
+      map.off("moveend", updateClipArea);
       map.off("mousedown", cancelOrbit);
       map.off("touchstart", cancelOrbit);
       map.off("wheel", cancelOrbit);
@@ -673,11 +819,14 @@ const MapCanvasInner = function MapCanvas({
     };
   }, [onSelectPlace, stopOrbit]);
 
+  // Pulse animation — skip entirely on mobile (pulse layer not added)
   useEffect(() => {
     const map = mapRef.current;
-    if (!mapEnabled || !map) {
-      return;
-    }
+    if (!mapEnabled || !map) return;
+
+    // Mobile has no pulse layer — skip the entire animation loop
+    const mobile = mobileRef.current;
+    if (mobile) return;
 
     let cancelled = false;
     let isMoving = false;
@@ -690,12 +839,8 @@ const MapCanvasInner = function MapCanvas({
     map.on('zoomend', handleMoveEnd);
 
     const animate = () => {
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
 
-      // Do not update paint properties while the user is actively panning/zooming
-      // to maintain a smooth 60fps interaction on the map.
       if (!isMoving) {
         const timestamp = performance.now();
         const wave = (Math.sin(timestamp / 620) + 1) / 2;
@@ -703,12 +848,6 @@ const MapCanvasInner = function MapCanvas({
         const opacity = 0.09 + (1 - wave) * 0.12;
 
         if (map.getLayer(PLACE_PULSE_LAYER_ID)) {
-          // Use plain numbers instead of zoom-interpolation expressions.
-          // Expression objects force Mapbox GL to recompile the evaluation
-          // pipeline on every call, which disrupts symbol placement and
-          // causes road/building labels to flicker at high zoom levels.
-          // Plain numbers take the fast-path — no recompilation needed,
-          // and the existing circle-radius-transition smooths the values.
           const zoom = map.getZoom();
           const zoomT = clamp((zoom - 8) / 6, 0, 1);
           const radius = lerp(7, 13.5, zoomT) + radiusBoost;
@@ -841,6 +980,7 @@ const MapCanvasInner = function MapCanvas({
     popupRef.current = new mapboxgl.Popup({
       closeButton: true,
       closeOnClick: false,
+      anchor: "bottom",
       className: "ad-popup-wrapper",
       maxWidth: "300px",
       offset: 16,
@@ -891,12 +1031,12 @@ const MapCanvasInner = function MapCanvas({
       mapLayersRef.current = { ...mapLayersRef.current, buildings3d: false };
       map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
     } else {
-      map.setMaxPitch(78);
+      const mobile = mobileRef.current;
+      map.setMaxPitch(mobile ? 55 : 78);
       const b3d = useAppStore.getState().buildings3d;
       try { map.setConfigProperty("basemap", "show3dObjects", b3d); } catch { /* noop */ }
       mapLayersRef.current = { ...mapLayersRef.current, buildings3d: b3d };
-      // Hard-coded 72° — reliable default street-level tilt
-      map.flyTo({ pitch: 72, duration: 600 });
+      map.flyTo({ pitch: mobile ? 45 : 72, duration: 600 });
     }
   }, [storeViewMode, mapLoaded]);
 
@@ -909,6 +1049,16 @@ const MapCanvasInner = function MapCanvas({
     } catch { /* noop */ }
     mapLayersRef.current = { ...mapLayersRef.current, buildings3d: storeBuildings3d };
   }, [storeBuildings3d, mapLoaded, storeViewMode]);
+
+  // ── Sync store showPoiLabels → basemap config ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    try {
+      map.setConfigProperty("basemap", "showPointOfInterestLabels", storeShowPoiLabels);
+    } catch { /* noop */ }
+    mapLayersRef.current = { ...mapLayersRef.current, poiLabels: storeShowPoiLabels };
+  }, [storeShowPoiLabels, mapLoaded]);
 
   // ── Sync store pitch → map camera (3D mode only) ──
   useEffect(() => {
@@ -1079,22 +1229,12 @@ const MapCanvasInner = function MapCanvas({
     stopOrbit();
 
     if (focusCoordinates) {
-      // Hide 3D buildings during long-distance fly (> 500m) to cut GPU load
-      // and tile fetching. Short hops (within a neighborhood) keep buildings.
-      const cur = map.getCenter();
-      const dx = focusCoordinates.lng - cur.lng;
-      const dy = focusCoordinates.lat - cur.lat;
-      const isLongFly = Math.sqrt(dx * dx + dy * dy) * 111 > 2;
-
-      if (isLongFly) {
-        try {
-          map.setConfigProperty("basemap", "show3dObjects", false);
-        } catch { /* noop */ }
-      }
+      // Move the 3D clip area to the destination NOW so buildings are visible
+      // when the camera arrives, not after moveend fires.
+      const clipSrc = map.getSource(CLIP_SOURCE) as GeoJSONSource | undefined;
+      if (clipSrc) clipSrc.setData(clipCircleGeoJson(focusCoordinates));
 
       if (selectedPlaceId) {
-        // Selected place → low street-level fly, then orbit.
-        // Low curve keeps camera close (no zoom-out mid-flight = fewer tiles).
         const flyDuration = 1600;
         map.flyTo({
           center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
@@ -1106,8 +1246,6 @@ const MapCanvasInner = function MapCanvas({
           curve: 0.8,
         });
 
-        // Start orbit the moment flyTo lands — camera is already at the
-        // target so jumpTo won't snap/jump, just smoothly adds rotation.
         const targetId = selectedPlaceId;
         const targetCenter: [number, number] = [
           focusCoordinates.lng,
@@ -1115,26 +1253,15 @@ const MapCanvasInner = function MapCanvas({
         ];
         const onArrival = () => {
           if (selectedRef.current === targetId) {
-            if (isLongFly) {
-              try {
-                map.setConfigProperty(
-                  "basemap",
-                  "show3dObjects",
-                  mapLayersRef.current.buildings3d,
-                );
-              } catch { /* noop */ }
-            }
             startOrbit(targetCenter, targetId);
           }
         };
         map.once("moveend", onArrival);
 
-        // Clean up listener if effect re-runs before flyTo finishes
         return () => {
           map.off("moveend", onArrival);
         };
       } else {
-        // Search / recenter
         map.flyTo({
           center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
           zoom: 18.6,
@@ -1144,18 +1271,6 @@ const MapCanvasInner = function MapCanvas({
           essential: true,
           curve: 0.8,
         });
-
-        if (isLongFly) {
-          map.once("moveend", () => {
-            try {
-              map.setConfigProperty(
-                "basemap",
-                "show3dObjects",
-                mapLayersRef.current.buildings3d,
-              );
-            } catch { /* noop */ }
-          });
-        }
       }
       return;
     }
