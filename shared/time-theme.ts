@@ -1,4 +1,5 @@
 import type { TimeTheme } from "./types";
+import { hexToRgb } from "./utils";
 
 export interface TimeThemeMeta {
   id: TimeTheme;
@@ -145,19 +146,6 @@ const THEME_KEYFRAMES: ThemeKeyframe[] = [
     colors: ["#0B1020", "#172554", "#312E81"],
   },
 ];
-
-function hexToRgb(hex: string): [number, number, number] {
-  const value = hex.replace("#", "");
-  const normalized = value.length === 3
-    ? value
-        .split("")
-        .map((part) => part + part)
-        .join("")
-    : value;
-
-  const parsed = Number.parseInt(normalized, 16);
-  return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
-}
 
 function mixColor(start: string, end: string, progress: number): string {
   const from = hexToRgb(start);

@@ -27,10 +27,14 @@ export class AfterDarkStack extends Stack {
         target: "node20",
       },
       environment: {
-        ALLOW_ORIGIN: process.env.ALLOW_ORIGIN ?? "*",
+        ALLOW_ORIGIN: process.env.ALLOW_ORIGIN ?? "",
         MAPBOX_ACCESS_TOKEN: process.env.MAPBOX_ACCESS_TOKEN ?? "",
       },
     });
+
+    const allowedOrigins = process.env.ALLOW_ORIGIN
+      ? process.env.ALLOW_ORIGIN.split(",")
+      : Cors.ALL_ORIGINS;
 
     const api = new RestApi(this, "AfterDarkApi", {
       restApiName: "afterdark-service",
@@ -40,7 +44,7 @@ export class AfterDarkStack extends Stack {
         metricsEnabled: true,
       },
       defaultCorsPreflightOptions: {
-        allowOrigins: Cors.ALL_ORIGINS,
+        allowOrigins: allowedOrigins,
         allowMethods: ["GET", "OPTIONS"],
         allowHeaders: ["content-type", "authorization"],
       },

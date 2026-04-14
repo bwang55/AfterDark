@@ -70,23 +70,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { message, hour, openPlaceIds, history } = body;
-  if (!message || typeof message !== "string" || !message.trim()) {
+  const { message: rawMessage, hour: rawHour, openPlaceIds, history } = body;
+  if (!rawMessage || typeof rawMessage !== "string" || !rawMessage.trim()) {
     return NextResponse.json(
       { error: "Message is required" },
       { status: 400 },
     );
   }
-  if (typeof hour !== "number") {
+  if (typeof rawHour !== "number") {
     return NextResponse.json(
       { error: "Hour is required" },
       { status: 400 },
     );
   }
 
+  // Sanitize inputs
+  const message = rawMessage.trim().slice(0, 500);
+  const hour = Math.max(0, Math.min(24, rawHour));
+
   const validIds = new Set(
     Array.isArray(openPlaceIds)
-      ? openPlaceIds.filter((id): id is string => typeof id === "string")
+      ? openPlaceIds
+          .filter((id): id is string => typeof id === "string")
+          .slice(0, 50)
       : [],
   );
 

@@ -5,15 +5,20 @@ import { SEED_PLACES } from "../../shared/places";
 import type { Place } from "../../shared/types";
 import { discoverPlaces } from "../../lib/discovery";
 
-const allowOrigin = process.env.ALLOW_ORIGIN ?? "*";
+const allowOrigin = process.env.ALLOW_ORIGIN || "";
 const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
 
-function numberOrUndefined(value: string | undefined): number | undefined {
-  if (!value) {
-    return undefined;
-  }
+function numberOrUndefined(
+  value: string | undefined,
+  min?: number,
+  max?: number,
+): number | undefined {
+  if (!value) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  if (!Number.isFinite(parsed)) return undefined;
+  if (min !== undefined && parsed < min) return min;
+  if (max !== undefined && parsed > max) return max;
+  return parsed;
 }
 
 function jsonResponse(
@@ -24,9 +29,11 @@ function jsonResponse(
     statusCode,
     headers: {
       "content-type": "application/json",
-      "access-control-allow-origin": allowOrigin,
-      "access-control-allow-methods": "GET,OPTIONS",
-      "access-control-allow-headers": "content-type,authorization",
+      ...(allowOrigin && {
+        "access-control-allow-origin": allowOrigin,
+        "access-control-allow-methods": "GET,OPTIONS",
+        "access-control-allow-headers": "content-type,authorization",
+      }),
     },
     body: JSON.stringify(body),
   };
@@ -41,11 +48,11 @@ export async function handler(
 
   const query = event.queryStringParameters ?? {};
 
-  const hour = numberOrUndefined(query.time) ?? 22;
+  const hour = numberOrUndefined(query.time, 0, 24) ?? 22;
   const tags = parseTags(query.tags);
-  const limit = numberOrUndefined(query.limit) ?? 40;
-  const lng = numberOrUndefined(query.lng);
-  const lat = numberOrUndefined(query.lat);
+  const limit = numberOrUndefined(query.limit, 1, 100) ?? 40;
+  const lng = numberOrUndefined(query.lng, -180, 180);
+  const lat = numberOrUndefined(query.lat, -90, 90);
   const bbox = parseBbox(query.bbox);
   const searchQuery = (query.q ?? query.query ?? "").trim();
 

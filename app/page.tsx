@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { MapCanvas } from "@/components/MapCanvas";
 import { useURLSync } from "@/hooks/useURLSync";
+import { usePlaces } from "@/hooks/usePlaces";
 import { ThemeTransitionLayer } from "@/components/ThemeTransitionLayer";
 import { SearchBox } from "@/components/ui/SearchBox";
 import { LocationList } from "@/components/ui/LocationList";
@@ -14,48 +15,9 @@ import { SettingButton } from "@/components/ui/SettingButton";
 import { LocateButton } from "@/components/ui/LocateButton";
 import { ResetAreaButton } from "@/components/ui/ResetAreaButton";
 import { ViewModeButton } from "@/components/ui/ViewModeButton";
-import { MOCK_PLACES, PROVIDENCE_CENTER, isPlaceOpen } from "@/data/mockPlaces";
+import { MOCK_PLACES, PROVIDENCE_CENTER } from "@/data/mockPlaces";
 import { useAppStore } from "@/store/useAppStore";
 import { resolveThemeByHour } from "@/shared/time-theme";
-import type { RankedPlace, PlaceTag, TimeTheme } from "@/shared/types";
-
-// ── Convert MockPlace → RankedPlace for MapCanvas ───────────────────────
-
-const CATEGORY_TAGS: Record<string, PlaceTag[]> = {
-  bars: ["Late Night"],
-  food: ["Cafe"],
-  music: ["Late Night"],
-  clubs: ["Late Night"],
-};
-
-const CATEGORY_BEST_FOR: Record<string, TimeTheme[]> = {
-  bars: ["dusk", "night"],
-  food: ["afternoon", "dusk"],
-  music: ["night"],
-  clubs: ["night"],
-};
-
-function mockToRanked(
-  p: (typeof MOCK_PLACES)[number],
-  hour: number,
-): RankedPlace {
-  const open = isPlaceOpen(p, hour);
-  return {
-    id: p.id,
-    name: p.name,
-    vibe: p.description,
-    neighborhood: p.address + ", Providence RI",
-    tags: CATEGORY_TAGS[p.category] ?? [],
-    statuses: open ? ["Open"] : ["Closed"],
-    coordinates: p.coordinates,
-    bestFor: CATEGORY_BEST_FOR[p.category] ?? [],
-    openHour: p.openHours.open,
-    closeHour: p.openHours.close,
-    score: open ? 5 : 0,
-    openNow: open,
-    visibility: open ? 1 : 0.3,
-  };
-}
 
 // ── Page ─────────────────────────────────────────────────────────────────
 
@@ -64,42 +26,14 @@ export default function HomePage() {
   const selectedPlaceId = useAppStore((s) => s.selectedPlaceId);
   const hoveredPlaceId = useAppStore((s) => s.hoveredPlaceId);
   const setSelectedPlaceId = useAppStore((s) => s.setSelectedPlaceId);
-  const query = useAppStore((s) => s.query);
-  const selectedCategory = useAppStore((s) => s.selectedCategory);
-  const filterOpenNow = useAppStore((s) => s.filterOpenNow);
-  const filterTags = useAppStore((s) => s.filterTags);
 
   const { urlCenter, handleViewportChange } = useURLSync();
 
   const hour = ((timeValue % 24) + 24) % 24;
   const theme = resolveThemeByHour(hour);
 
-  // ── Filter mock places by time, category, query, and filters ──
-  const places = useMemo(() => {
-    let list = MOCK_PLACES;
-    if (selectedCategory) {
-      list = list.filter((p) => p.category === selectedCategory);
-    }
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.vibeTags.some((t) => t.toLowerCase().includes(q)),
-      );
-    }
-    if (filterOpenNow) {
-      list = list.filter((p) => isPlaceOpen(p, hour));
-    }
-    if (filterTags.length > 0) {
-      list = list.filter((p) =>
-        filterTags.some((tag) => p.vibeTags.includes(tag)),
-      );
-    }
-    return list
-      .filter((p) => isPlaceOpen(p, hour))
-      .map((p) => mockToRanked(p, hour));
-  }, [selectedCategory, query, filterOpenNow, filterTags, hour]);
+  // ── Unified data source (API or local MOCK_PLACES) ──
+  const places = usePlaces();
 
   // ── Map-specific state ──
   const [userLocation, setUserLocation] = useState<{

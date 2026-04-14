@@ -1,13 +1,6 @@
 import { resolveThemeByHour } from "./time-theme";
 import type { Place, PlaceTag, PlacesQuery, RankedPlace } from "./types";
-
-function normalizeHour(hour: number): number {
-  return ((hour % 24) + 24) % 24;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
+import { clamp, isOpenAtHour as isOpenRaw, normalizeHour } from "./utils";
 
 function circularDistanceHours(a: number, b: number): number {
   const distance = Math.abs(a - b);
@@ -41,19 +34,7 @@ function distanceToOpenWindow(
 }
 
 export function isOpenAtHour(place: Place, rawHour: number): boolean {
-  const hour = normalizeHour(rawHour);
-  const open = normalizeHour(place.openHour);
-  const close = normalizeHour(place.closeHour);
-
-  if (open === close) {
-    return true;
-  }
-
-  if (open < close) {
-    return hour >= open && hour < close;
-  }
-
-  return hour >= open || hour < close;
+  return isOpenRaw(rawHour, place.openHour, place.closeHour);
 }
 
 function toRadians(value: number): number {

@@ -2,6 +2,7 @@ import type { Feature, FeatureCollection, Point } from "geojson";
 
 import { rankPlaces } from "@/shared/filter";
 import type { Place, PlaceTag, RankedPlace, TimeTheme } from "@/shared/types";
+import { clamp } from "@/shared/utils";
 
 const DISCOVERY_TERMS = [
   "restaurant",
@@ -40,10 +41,6 @@ export interface DiscoverPlacesArgs {
   proximity?: { lng: number; lat: number };
   signal?: AbortSignal;
   query?: string;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 // ---------- Discovery-level cache ----------

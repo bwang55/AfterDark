@@ -19,6 +19,7 @@ import {
 } from "@/lib/map";
 import { interpolateThemeVisual, resolveThemeByHour, TIME_THEME_META } from "@/shared/time-theme";
 import type { RankedPlace, TimeTheme } from "@/shared/types";
+import { clamp, hexToRgb, lerp, mixHex } from "@/shared/utils";
 import { useAppStore } from "@/store/useAppStore";
 
 interface MapCanvasProps {
@@ -38,41 +39,6 @@ interface MapCanvasProps {
     center: { lng: number; lat: number };
     zoom: number;
   }) => void;
-}
-
-function lerp(start: number, end: number, progress: number): number {
-  const t = Math.min(1, Math.max(0, progress));
-  return start + (end - start) * t;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const raw = hex.replace("#", "");
-  const normalized =
-    raw.length === 3
-      ? raw
-          .split("")
-          .map((part) => part + part)
-          .join("")
-      : raw;
-
-  const value = Number.parseInt(normalized, 16);
-  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
-}
-
-function mixHex(start: string, end: string, progress: number): string {
-  const from = hexToRgb(start);
-  const to = hexToRgb(end);
-  const t = clamp(progress, 0, 1);
-
-  const r = Math.round(from[0] + (to[0] - from[0]) * t);
-  const g = Math.round(from[1] + (to[1] - from[1]) * t);
-  const b = Math.round(from[2] + (to[2] - from[2]) * t);
-  const toHex = (n: number) => n.toString(16).padStart(2, "0");
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function pointPaintForTime(timeValue: number): {

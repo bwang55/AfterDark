@@ -190,14 +190,11 @@ export const MOCK_PLACES: MockPlace[] = [
   },
 ];
 
+import { isOpenAtHour } from "@/shared/utils";
+
 /** Check if a place is open at a given hour (handles overnight spans). */
 export function isPlaceOpen(p: MockPlace, hour: number): boolean {
-  const h = ((hour % 24) + 24) % 24;
-  if (p.openHours.open < p.openHours.close) {
-    return h >= p.openHours.open && h < p.openHours.close;
-  }
-  // overnight: e.g. open 22 → close 3
-  return h >= p.openHours.open || h < p.openHours.close;
+  return isOpenAtHour(hour, p.openHours.open, p.openHours.close);
 }
 
 /** Providence center for initial map view */
