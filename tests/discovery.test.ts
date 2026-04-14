@@ -160,8 +160,8 @@ describe("discovery cache", () => {
     await discoverPlaces(args);
     const callsAfterFirst = mockFetch.mock.calls.length;
 
-    // Advance past 5-minute TTL
-    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    // Advance past 10-minute TTL
+    vi.advanceTimersByTime(10 * 60 * 1000 + 1);
 
     await discoverPlaces(args);
     // Should have made new fetch calls

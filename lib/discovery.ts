@@ -45,7 +45,7 @@ export interface DiscoverPlacesArgs {
 
 // ---------- Discovery-level cache ----------
 const discoveryCache = new Map<string, { ts: number; data: RankedPlace[] }>();
-const DISCOVERY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const DISCOVERY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes — reduces Mapbox API calls
 const DISCOVERY_CACHE_MAX = 30;
 
 function discoveryCacheKey(args: DiscoverPlacesArgs): string {
@@ -299,8 +299,8 @@ export async function discoverPlaces(
   
   // If user provided a query, search for that query directly along with main terms.
   const termsToSearch = args.query && args.query.trim().length > 0 
-    ? [args.query.trim(), ...DISCOVERY_TERMS.slice(0, 2)] 
-    : DISCOVERY_TERMS.slice(0, 4);
+    ? [args.query.trim(), ...DISCOVERY_TERMS.slice(0, 2)]
+    : DISCOVERY_TERMS.slice(0, 3);
     
   console.log(`[discovery] Searching terms: ${termsToSearch.join(", ")} inside bbox: ${args.bbox.join(",")}`);
     

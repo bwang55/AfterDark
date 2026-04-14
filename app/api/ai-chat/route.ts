@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MOCK_PLACES } from "@/data/mockPlaces";
 import { resolveThemeByHour } from "@/shared/time-theme";
+import { createRateLimiter, getClientIp } from "@/lib/rate-limit";
+
+// 10 requests per minute per IP — OpenAI calls are expensive
+const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
 const PERSONALITY: Record<string, string> = {
   morning:
@@ -50,6 +54,14 @@ Important: Always include the --- separator line. Never skip it. Never put place
 }
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
+  if (!limiter.check(ip)) {
+    return NextResponse.json(
+      { error: "Too many requests — try again in a minute" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
