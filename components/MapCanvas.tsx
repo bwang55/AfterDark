@@ -19,6 +19,7 @@ import {
 } from "@/lib/map";
 import { interpolateThemeVisual, resolveThemeByHour, TIME_THEME_META } from "@/shared/time-theme";
 import type { RankedPlace, TimeTheme } from "@/shared/types";
+import { useAppStore } from "@/store/useAppStore";
 
 interface MapCanvasProps {
   theme: TimeTheme;
@@ -405,6 +406,7 @@ const MapCanvasInner = function MapCanvas({
   const timeValueRef = useRef<number>(timeValue);
   const hoveredRef = useRef<string | null>(hoveredPlaceId);
   const selectedRef = useRef<string | null>(selectedPlaceId);
+  const userLocationRef = useRef(userLocation);
   const viewportChangeRef = useRef<MapCanvasProps["onViewportChange"]>(onViewportChange);
   const lastViewportKeyRef = useRef<string | null>(null);
   const pulseFrameRef = useRef<number | null>(null);
@@ -415,7 +417,6 @@ const MapCanvasInner = function MapCanvas({
   const onDeselectPlaceRef = useRef(onDeselectPlace);
   const [mapEnabled, setMapEnabled] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [legendOpen, setLegendOpen] = useState(false);
   const [mapLayers, setMapLayers] = useState({
     roadLabels: true,
     placeLabels: true,
@@ -424,6 +425,51 @@ const MapCanvasInner = function MapCanvas({
     buildings3d: true,
   });
   const prevLayersRef = useRef(mapLayers);
+  const mapLayersRef = useRef(mapLayers);
+  const orbitFrameRef = useRef<number | null>(null);
+  const orbitActiveRef = useRef(false);
+
+  // ── Store-driven map controls ──
+  const storeBuildings3d = useAppStore((s) => s.buildings3d);
+  const storeMapPitch = useAppStore((s) => s.mapPitch);
+  const storeResetNorthCount = useAppStore((s) => s.resetNorthCount);
+  const setStoreMapPitch = useAppStore((s) => s.setMapPitch);
+  const storeWalkingCircles = useAppStore((s) => s.walkingCircles);
+  const storeViewMode = useAppStore((s) => s.viewMode);
+
+  const stopOrbit = useCallback(() => {
+    orbitActiveRef.current = false;
+    if (orbitFrameRef.current !== null) {
+      cancelAnimationFrame(orbitFrameRef.current);
+      orbitFrameRef.current = null;
+    }
+  }, []);
+
+  const startOrbit = useCallback(
+    (center: [number, number], placeId: string) => {
+      const map = mapRef.current;
+      if (!map) return;
+      stopOrbit();
+      orbitActiveRef.current = true;
+      const startBearing = map.getBearing();
+      const startTime = performance.now();
+      const SPEED = 3; // degrees per second — full rotation in ~120s
+      const tick = () => {
+        const m = mapRef.current;
+        if (!orbitActiveRef.current || !m) return;
+        if (selectedRef.current !== placeId) {
+          stopOrbit();
+          return;
+        }
+        const elapsed = (performance.now() - startTime) / 1000;
+        m.jumpTo({ bearing: startBearing - elapsed * SPEED, center });
+        orbitFrameRef.current = requestAnimationFrame(tick);
+      };
+      orbitFrameRef.current = requestAnimationFrame(tick);
+    },
+    [stopOrbit],
+  );
+
   const mapTint = interpolateThemeVisual(timeValue).gradient;
   const mapTintOpacity = tintOpacityForTime(timeValue);
 
@@ -471,6 +517,10 @@ const MapCanvasInner = function MapCanvas({
   }, [onViewportChange]);
 
   useEffect(() => {
+    userLocationRef.current = userLocation;
+  }, [userLocation]);
+
+  useEffect(() => {
     onDeselectPlaceRef.current = onDeselectPlace;
   }, [onDeselectPlace]);
 
@@ -490,10 +540,11 @@ const MapCanvasInner = function MapCanvas({
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: "mapbox://styles/mapbox/standard",
-      center: [-98.5795, 39.8283],
-      zoom: 3.4,
-      pitch: 45,
+      center: [-71.4128, 41.824],
+      zoom: 15.5,
+      pitch: 72,
       bearing: -8,
+      maxPitch: 78,
       attributionControl: false,
       antialias: true,
       fadeDuration: 0,
@@ -502,6 +553,7 @@ const MapCanvasInner = function MapCanvas({
     mapRef.current = map;
 
     const emitViewport = () => {
+      if (orbitActiveRef.current) return;
       const callback = viewportChangeRef.current;
       if (!callback) {
         return;
@@ -532,6 +584,9 @@ const MapCanvasInner = function MapCanvas({
       if (source) {
         source.setData(placesToGeoJson(placesRef.current));
       }
+
+      // Restore user location blue dot (lost on style.load)
+      updateUserLocationDot(map, userLocationRef.current);
 
       applyTheme(map, timeValueRef.current);
       applyActiveFilter(map, hoveredRef.current, selectedRef.current);
@@ -597,19 +652,31 @@ const MapCanvasInner = function MapCanvas({
       map.getCanvas().style.cursor = "";
     });
 
+    // Cancel orbit on direct user interaction
+    const cancelOrbit = () => {
+      if (orbitActiveRef.current) stopOrbit();
+    };
+    map.on("mousedown", cancelOrbit);
+    map.on("touchstart", cancelOrbit);
+    map.on("wheel", cancelOrbit);
+
     setMapEnabled(true);
 
     return () => {
+      stopOrbit();
       if (pulseFrameRef.current !== null) {
         clearTimeout(pulseFrameRef.current);
         pulseFrameRef.current = null;
       }
       map.off("moveend", emitViewport);
+      map.off("mousedown", cancelOrbit);
+      map.off("touchstart", cancelOrbit);
+      map.off("wheel", cancelOrbit);
       map.remove();
       mapRef.current = null;
       setMapEnabled(false);
     };
-  }, [onSelectPlace]);
+  }, [onSelectPlace, stopOrbit]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -618,29 +685,56 @@ const MapCanvasInner = function MapCanvas({
     }
 
     let cancelled = false;
+    let isMoving = false;
+
+    const handleMoveStart = () => { isMoving = true; };
+    const handleMoveEnd = () => { isMoving = false; };
+    map.on('movestart', handleMoveStart);
+    map.on('moveend', handleMoveEnd);
+    map.on('zoomstart', handleMoveStart);
+    map.on('zoomend', handleMoveEnd);
 
     const animate = () => {
       if (cancelled) {
         return;
       }
 
-      const timestamp = performance.now();
-      const wave = (Math.sin(timestamp / 620) + 1) / 2;
-      const radiusBoost = 0.8 + wave * 1.9;
-      const opacity = 0.09 + (1 - wave) * 0.12;
+      // Do not update paint properties while the user is actively panning/zooming
+      // to maintain a smooth 60fps interaction on the map.
+      if (!isMoving) {
+        const timestamp = performance.now();
+        const wave = (Math.sin(timestamp / 620) + 1) / 2;
+        const radiusBoost = 0.8 + wave * 1.9;
+        const opacity = 0.09 + (1 - wave) * 0.12;
 
-      if (map.getLayer(PLACE_PULSE_LAYER_ID)) {
-        map.setPaintProperty(PLACE_PULSE_LAYER_ID, "circle-radius", pulseRadiusExpression(radiusBoost));
-        map.setPaintProperty(PLACE_PULSE_LAYER_ID, "circle-opacity", pulseOpacityExpression(opacity));
+        if (map.getLayer(PLACE_PULSE_LAYER_ID)) {
+          // Use plain numbers instead of zoom-interpolation expressions.
+          // Expression objects force Mapbox GL to recompile the evaluation
+          // pipeline on every call, which disrupts symbol placement and
+          // causes road/building labels to flicker at high zoom levels.
+          // Plain numbers take the fast-path — no recompilation needed,
+          // and the existing circle-radius-transition smooths the values.
+          const zoom = map.getZoom();
+          const zoomT = clamp((zoom - 8) / 6, 0, 1);
+          const radius = lerp(7, 13.5, zoomT) + radiusBoost;
+          map.setPaintProperty(PLACE_PULSE_LAYER_ID, "circle-radius", radius);
+          map.setPaintProperty(PLACE_PULSE_LAYER_ID, "circle-opacity", opacity * 0.75);
+        }
       }
 
-      pulseFrameRef.current = window.setTimeout(animate, 200);
+      pulseFrameRef.current = window.setTimeout(() => {
+        window.requestAnimationFrame(animate);
+      }, 250);
     };
 
     pulseFrameRef.current = window.setTimeout(animate, 200);
 
     return () => {
       cancelled = true;
+      map.off('movestart', handleMoveStart);
+      map.off('moveend', handleMoveEnd);
+      map.off('zoomstart', handleMoveStart);
+      map.off('zoomend', handleMoveEnd);
       if (pulseFrameRef.current !== null) {
         clearTimeout(pulseFrameRef.current);
         pulseFrameRef.current = null;
@@ -693,6 +787,26 @@ const MapCanvasInner = function MapCanvas({
     const root = document.createElement("div");
     root.className = "ad-popup";
 
+    // Venue photo from Google Places (loaded on demand)
+    const imgWrap = document.createElement("div");
+    imgWrap.className = "ad-popup__img-wrap";
+    const img = document.createElement("img");
+    img.alt = place.name;
+    img.className = "ad-popup__img";
+    img.style.display = "none";
+    imgWrap.appendChild(img);
+    root.appendChild(imgWrap);
+
+    const photoUrl = `/api/place-photo?name=${encodeURIComponent(place.name)}&lat=${lat}&lng=${lng}`;
+    img.onload = () => {
+      img.style.display = "block";
+      imgWrap.classList.add("ad-popup__img-wrap--loaded");
+    };
+    img.onerror = () => {
+      imgWrap.remove();
+    };
+    img.src = photoUrl;
+
     const name = document.createElement("p");
     name.className = "ad-popup__name";
     name.textContent = place.name;
@@ -733,7 +847,7 @@ const MapCanvasInner = function MapCanvas({
       closeButton: true,
       closeOnClick: false,
       className: "ad-popup-wrapper",
-      maxWidth: "260px",
+      maxWidth: "300px",
       offset: 16,
     })
       .setLngLat([lng, lat])
@@ -755,6 +869,7 @@ const MapCanvasInner = function MapCanvas({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
+    mapLayersRef.current = mapLayers;
     const prev = prevLayersRef.current;
     prevLayersRef.current = mapLayers;
     if (prev === mapLayers) return;
@@ -771,6 +886,173 @@ const MapCanvasInner = function MapCanvas({
         map.setConfigProperty("basemap", "show3dObjects", mapLayers.buildings3d);
     } catch { /* noop */ }
   }, [mapLayers, mapLoaded]);
+
+  // ── 2D / 3D view mode ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    const is2d = storeViewMode === "2d";
+
+    if (is2d) {
+      map.setMaxPitch(0);
+      try { map.setConfigProperty("basemap", "show3dObjects", false); } catch { /* noop */ }
+      mapLayersRef.current = { ...mapLayersRef.current, buildings3d: false };
+      map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+    } else {
+      map.setMaxPitch(78);
+      const b3d = useAppStore.getState().buildings3d;
+      try { map.setConfigProperty("basemap", "show3dObjects", b3d); } catch { /* noop */ }
+      mapLayersRef.current = { ...mapLayersRef.current, buildings3d: b3d };
+      // Hard-coded 72° — reliable default street-level tilt
+      map.flyTo({ pitch: 72, duration: 600 });
+    }
+  }, [storeViewMode, mapLoaded]);
+
+  // ── Sync store buildings3d → basemap config (3D mode only) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || storeViewMode === "2d") return;
+    try {
+      map.setConfigProperty("basemap", "show3dObjects", storeBuildings3d);
+    } catch { /* noop */ }
+    mapLayersRef.current = { ...mapLayersRef.current, buildings3d: storeBuildings3d };
+  }, [storeBuildings3d, mapLoaded, storeViewMode]);
+
+  // ── Sync store pitch → map camera (3D mode only) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || storeViewMode === "2d") return;
+    const diff = Math.abs(map.getPitch() - storeMapPitch);
+    if (diff < 0.5) return;
+    const duration = Math.min(diff * 8, 500);
+    map.easeTo({ pitch: storeMapPitch, duration });
+  }, [storeMapPitch, mapLoaded, storeViewMode]);
+
+  // ── Feed map pitch back to store on user gesture ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    const onPitchEnd = () => {
+      // Zustand no-ops if value unchanged, so no feedback loop
+      setStoreMapPitch(Math.round(map.getPitch()));
+    };
+    map.on("pitchend", onPitchEnd);
+    return () => { map.off("pitchend", onPitchEnd); };
+  }, [mapLoaded, setStoreMapPitch]);
+
+  // ── Reset North trigger ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || storeResetNorthCount === 0) return;
+    map.easeTo({ bearing: 0, duration: 600 });
+  }, [storeResetNorthCount, mapLoaded]);
+
+  // ── Walking isochrone circles ──
+  const ISOCHRONE_SOURCE = "isochrone-source";
+  const ISOCHRONE_FILL_LAYER = "isochrone-fill";
+  const ISOCHRONE_LINE_LAYER = "isochrone-line";
+  // Cache: keyed by "lng,lat", persists across toggle on/off
+  const isochroneCacheRef = useRef<{ key: string; data: GeoJSON.FeatureCollection } | null>(null);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+
+    const loc = userLocationRef.current;
+
+    // Remove layers when disabled (but keep cache)
+    if (!storeWalkingCircles || !loc) {
+      if (map.getLayer(ISOCHRONE_LINE_LAYER)) map.removeLayer(ISOCHRONE_LINE_LAYER);
+      if (map.getLayer(ISOCHRONE_FILL_LAYER)) map.removeLayer(ISOCHRONE_FILL_LAYER);
+      if (map.getSource(ISOCHRONE_SOURCE)) map.removeSource(ISOCHRONE_SOURCE);
+      return;
+    }
+
+    let cancelled = false;
+    const locKey = `${loc.lng.toFixed(4)},${loc.lat.toFixed(4)}`;
+
+    const addLayers = (m: Map, geojson: GeoJSON.FeatureCollection) => {
+      if (!m.getSource(ISOCHRONE_SOURCE)) {
+        m.addSource(ISOCHRONE_SOURCE, { type: "geojson", data: geojson });
+      } else {
+        (m.getSource(ISOCHRONE_SOURCE) as GeoJSONSource).setData(geojson);
+      }
+      if (!m.getLayer(ISOCHRONE_FILL_LAYER)) {
+        m.addLayer(
+          {
+            id: ISOCHRONE_FILL_LAYER,
+            type: "fill",
+            source: ISOCHRONE_SOURCE,
+            paint: {
+              "fill-color": [
+                "match", ["get", "contour"],
+                5, "rgba(56, 189, 248, 0.18)",
+                10, "rgba(99, 102, 241, 0.14)",
+                15, "rgba(168, 85, 247, 0.10)",
+                "rgba(100,100,200,0.08)",
+              ],
+              "fill-emissive-strength": 0.6,
+            },
+          },
+          PLACE_PULSE_LAYER_ID,
+        );
+      }
+      if (!m.getLayer(ISOCHRONE_LINE_LAYER)) {
+        m.addLayer(
+          {
+            id: ISOCHRONE_LINE_LAYER,
+            type: "line",
+            source: ISOCHRONE_SOURCE,
+            paint: {
+              "line-color": [
+                "match", ["get", "contour"],
+                5, "rgba(56, 189, 248, 0.55)",
+                10, "rgba(99, 102, 241, 0.45)",
+                15, "rgba(168, 85, 247, 0.35)",
+                "rgba(100,100,200,0.2)",
+              ],
+              "line-width": 1.5,
+              "line-emissive-strength": 0.8,
+            },
+          },
+          PLACE_PULSE_LAYER_ID,
+        );
+      }
+    };
+
+    // Rebuild layers after style.load (lightPreset changes wipe custom layers)
+    const onStyleLoad = () => {
+      if (isochroneCacheRef.current && mapRef.current) {
+        addLayers(mapRef.current, isochroneCacheRef.current.data);
+      }
+    };
+    map.on("style.load", onStyleLoad);
+
+    // Use cached data if location hasn't changed — no API call
+    if (isochroneCacheRef.current?.key === locKey) {
+      addLayers(map, isochroneCacheRef.current.data);
+    } else {
+      // Fetch fresh isochrone data
+      const token = mapboxgl.accessToken;
+      const url =
+        `https://api.mapbox.com/isochrone/v1/mapbox/walking/` +
+        `${loc.lng},${loc.lat}?contours_minutes=5,10,15&polygons=true&denoise=1&access_token=${token}`;
+
+      fetch(url)
+        .then((r) => r.json())
+        .then((geojson) => {
+          if (cancelled || !mapRef.current) return;
+          isochroneCacheRef.current = { key: locKey, data: geojson };
+          addLayers(mapRef.current, geojson);
+        })
+        .catch(() => { /* noop */ });
+    }
+
+    return () => {
+      cancelled = true;
+      map.off("style.load", onStyleLoad);
+    };
+  }, [storeWalkingCircles, userLocation, mapLoaded]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -791,33 +1073,92 @@ const MapCanvasInner = function MapCanvas({
       return;
     }
 
+    // Always stop orbit when camera target changes
+    stopOrbit();
+
     if (lastViewportKeyRef.current === viewportKey) {
       return;
     }
     lastViewportKeyRef.current = viewportKey;
 
     if (focusCoordinates) {
-      // Place selected → tight fly, stay close so user can see the pin
+      // Hide 3D buildings during long-distance fly (> 500m) to cut GPU load
+      // and tile fetching. Short hops (within a neighborhood) keep buildings.
+      const cur = map.getCenter();
+      const dx = focusCoordinates.lng - cur.lng;
+      const dy = focusCoordinates.lat - cur.lat;
+      const isLongFly = Math.sqrt(dx * dx + dy * dy) * 111 > 2;
+
+      if (isLongFly) {
+        try {
+          map.setConfigProperty("basemap", "show3dObjects", false);
+        } catch { /* noop */ }
+      }
+
       if (selectedPlaceId) {
+        // Selected place → low street-level fly, then orbit.
+        // Low curve keeps camera close (no zoom-out mid-flight = fewer tiles).
+        const flyDuration = 1600;
         map.flyTo({
           center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
-          zoom: 17,
-          pitch: 55,
-          bearing: -8,
+          zoom: 19.8,
+          pitch: 74,
+          bearing: map.getBearing() - 16,
+          duration: flyDuration,
+          essential: true,
+          curve: 0.8,
+        });
+
+        // Start orbit the moment flyTo lands — camera is already at the
+        // target so jumpTo won't snap/jump, just smoothly adds rotation.
+        const targetId = selectedPlaceId;
+        const targetCenter: [number, number] = [
+          focusCoordinates.lng,
+          focusCoordinates.lat,
+        ];
+        const onArrival = () => {
+          if (selectedRef.current === targetId) {
+            if (isLongFly) {
+              try {
+                map.setConfigProperty(
+                  "basemap",
+                  "show3dObjects",
+                  mapLayersRef.current.buildings3d,
+                );
+              } catch { /* noop */ }
+            }
+            startOrbit(targetCenter, targetId);
+          }
+        };
+        map.once("moveend", onArrival);
+
+        // Clean up listener if effect re-runs before flyTo finishes
+        return () => {
+          map.off("moveend", onArrival);
+        };
+      } else {
+        // Search / recenter
+        map.flyTo({
+          center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
+          zoom: 18.6,
+          pitch: 68,
+          bearing: -12,
           duration: 1400,
           essential: true,
-          curve: 1.2,
+          curve: 0.8,
         });
-      } else {
-        // Search / recenter → fly to roughly match the 2km loading area
-        map.flyTo({
-          center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
-          zoom: 15.5,
-          pitch: 50,
-          bearing: -12,
-          duration: 2200,
-          essential: true,
-        });
+
+        if (isLongFly) {
+          map.once("moveend", () => {
+            try {
+              map.setConfigProperty(
+                "basemap",
+                "show3dObjects",
+                mapLayersRef.current.buildings3d,
+              );
+            } catch { /* noop */ }
+          });
+        }
       }
       return;
     }
@@ -837,7 +1178,7 @@ const MapCanvasInner = function MapCanvas({
       duration: 760,
       essential: true,
     });
-  }, [focusCoordinates, places, viewportKey, mapLoaded]);
+  }, [focusCoordinates, places, viewportKey, mapLoaded, stopOrbit, startOrbit]);
 
   return (
     <div className="absolute inset-0">
@@ -884,85 +1225,6 @@ const MapCanvasInner = function MapCanvas({
         }}
       />
 
-      {mapEnabled && (
-        <div className="pointer-events-auto absolute bottom-6 left-4 z-30 md:bottom-8 md:left-6">
-          {legendOpen && (
-            <div className="mb-2 min-w-[148px] rounded-xl border border-white/[0.12] bg-black/60 p-3 shadow-lg backdrop-blur-md">
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">
-                Map Layers
-              </p>
-              {([
-                ["roadLabels", "Roads"],
-                ["placeLabels", "Places"],
-                ["poiLabels", "POI"],
-                ["transitLabels", "Transit"],
-                ["buildings3d", "3D Buildings"],
-              ] as const).map(([key, label]) => (
-                <label
-                  key={key}
-                  className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-[3px] transition-colors hover:bg-white/[0.06]"
-                  onClick={() => {
-                    setMapLayers((prev) => {
-                      const next = { ...prev };
-                      next[key] = !next[key];
-                      return next;
-                    });
-                  }}
-                >
-                  <span
-                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors ${
-                      mapLayers[key]
-                        ? "border-cyan-400/60 bg-cyan-400/80"
-                        : "border-white/25 bg-white/10"
-                    }`}
-                  >
-                    {mapLayers[key] && (
-                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="2 6 5 9 10 3" />
-                      </svg>
-                    )}
-                  </span>
-                  <span className="text-[11px] text-white/75">{label}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setLegendOpen((v) => !v)}
-            aria-label={legendOpen ? "Close map layers" : "Open map layers"}
-            className={`flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-md transition-colors active:scale-95 ${
-              legendOpen
-                ? "border-cyan-400/30 bg-black/65 text-cyan-300"
-                : "border-white/20 bg-black/50 text-white/90 hover:bg-black/70"
-            }`}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-              <polyline points="2 17 12 22 22 17" />
-              <polyline points="2 12 12 17 22 12" />
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {mapEnabled && userLocation ? (
-        <button
-          type="button"
-          aria-label="Return to current location"
-          onClick={onRecenter}
-          className="pointer-events-auto absolute bottom-6 right-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/90 shadow-lg backdrop-blur-md transition-colors hover:bg-black/70 active:scale-95 md:bottom-8 md:right-6"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <line x1="12" y1="2" x2="12" y2="6" />
-            <line x1="12" y1="18" x2="12" y2="22" />
-            <line x1="2" y1="12" x2="6" y2="12" />
-            <line x1="18" y1="12" x2="22" y2="12" />
-            <circle cx="12" cy="12" r="9" strokeOpacity="0.3" />
-          </svg>
-        </button>
-      ) : null}
 
       {!mapEnabled ? (
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.15)_0%,rgba(255,255,255,0)_38%),linear-gradient(120deg,rgba(7,11,24,0.75)_0%,rgba(9,15,34,0.84)_100%)]">

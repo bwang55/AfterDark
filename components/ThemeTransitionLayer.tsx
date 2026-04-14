@@ -100,7 +100,7 @@ function ThemeTransitionLayerInner({
       style={{
         background: visual.gradient,
         opacity: overlayOpacity,
-        mixBlendMode: "hard-light",
+        // Removed mix-blend-mode to greatly improve map drag/zoom performance (WebGL composition)
         transition: "background 1.8s cubic-bezier(0.22, 1, 0.36, 1), opacity 1.8s cubic-bezier(0.22, 1, 0.36, 1)",
         contain: "strict",
       }}
