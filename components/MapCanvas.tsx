@@ -415,6 +415,15 @@ const MapCanvasInner = function MapCanvas({
   const onDeselectPlaceRef = useRef(onDeselectPlace);
   const [mapEnabled, setMapEnabled] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [mapLayers, setMapLayers] = useState({
+    roadLabels: true,
+    placeLabels: true,
+    poiLabels: false,
+    transitLabels: false,
+    buildings3d: true,
+  });
+  const prevLayersRef = useRef(mapLayers);
   const mapTint = interpolateThemeVisual(timeValue).gradient;
   const mapTintOpacity = tintOpacityForTime(timeValue);
 
@@ -535,7 +544,7 @@ const MapCanvasInner = function MapCanvas({
       try {
         map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
         map.setConfigProperty("basemap", "showTransitLabels", false);
-        map.setConfigProperty("basemap", "showRoadLabels", false);
+        map.setConfigProperty("basemap", "showRoadLabels", true);
         map.setConfigProperty("basemap", "showPlaceLabels", true);
         map.setConfigProperty("basemap", "show3dObjects", true);
       } catch { /* noop */ }
@@ -745,6 +754,26 @@ const MapCanvasInner = function MapCanvas({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    const prev = prevLayersRef.current;
+    prevLayersRef.current = mapLayers;
+    if (prev === mapLayers) return;
+    try {
+      if (prev.roadLabels !== mapLayers.roadLabels)
+        map.setConfigProperty("basemap", "showRoadLabels", mapLayers.roadLabels);
+      if (prev.placeLabels !== mapLayers.placeLabels)
+        map.setConfigProperty("basemap", "showPlaceLabels", mapLayers.placeLabels);
+      if (prev.poiLabels !== mapLayers.poiLabels)
+        map.setConfigProperty("basemap", "showPointOfInterestLabels", mapLayers.poiLabels);
+      if (prev.transitLabels !== mapLayers.transitLabels)
+        map.setConfigProperty("basemap", "showTransitLabels", mapLayers.transitLabels);
+      if (prev.buildings3d !== mapLayers.buildings3d)
+        map.setConfigProperty("basemap", "show3dObjects", mapLayers.buildings3d);
+    } catch { /* noop */ }
+  }, [mapLayers, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !map.isStyleLoaded() || !mapLoaded) {
       return;
     }
@@ -854,6 +883,68 @@ const MapCanvasInner = function MapCanvas({
           contain: "strict",
         }}
       />
+
+      {mapEnabled && (
+        <div className="pointer-events-auto absolute bottom-6 left-4 z-30 md:bottom-8 md:left-6">
+          {legendOpen && (
+            <div className="mb-2 min-w-[148px] rounded-xl border border-white/[0.12] bg-black/60 p-3 shadow-lg backdrop-blur-md">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">
+                Map Layers
+              </p>
+              {([
+                ["roadLabels", "Roads"],
+                ["placeLabels", "Places"],
+                ["poiLabels", "POI"],
+                ["transitLabels", "Transit"],
+                ["buildings3d", "3D Buildings"],
+              ] as const).map(([key, label]) => (
+                <label
+                  key={key}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-[3px] transition-colors hover:bg-white/[0.06]"
+                  onClick={() => {
+                    setMapLayers((prev) => {
+                      const next = { ...prev };
+                      next[key] = !next[key];
+                      return next;
+                    });
+                  }}
+                >
+                  <span
+                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors ${
+                      mapLayers[key]
+                        ? "border-cyan-400/60 bg-cyan-400/80"
+                        : "border-white/25 bg-white/10"
+                    }`}
+                  >
+                    {mapLayers[key] && (
+                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="2 6 5 9 10 3" />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="text-[11px] text-white/75">{label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setLegendOpen((v) => !v)}
+            aria-label={legendOpen ? "Close map layers" : "Open map layers"}
+            className={`flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-md transition-colors active:scale-95 ${
+              legendOpen
+                ? "border-cyan-400/30 bg-black/65 text-cyan-300"
+                : "border-white/20 bg-black/50 text-white/90 hover:bg-black/70"
+            }`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {mapEnabled && userLocation ? (
         <button

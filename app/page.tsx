@@ -676,7 +676,7 @@ export default function HomePage() {
           Grid columns: [search 26rem] [time flexible] [places 22rem]
           On mobile they stack vertically; aside gets a max-height cap + scroll.
           Nothing overlaps because absolute positioning is removed from children. */}
-      <div className={`pointer-events-none absolute inset-0 z-20 flex flex-col gap-2 p-3 md:grid md:grid-rows-[auto_1fr] md:gap-3 md:p-6 transition-[grid-template-columns] duration-500 ease-[cubic-bezier(0.22,0.72,0.2,1)] ${sidebarCollapsed ? 'md:grid-cols-[minmax(min-content,26rem)_1fr_0rem]' : 'md:grid-cols-[minmax(min-content,26rem)_1fr_22rem]'}`}>
+      <div className={`pointer-events-none absolute inset-0 z-20 flex flex-col gap-2 p-3 md:grid md:grid-rows-[auto_1fr] md:gap-3 md:p-6 transition-[grid-template-columns] duration-500 ease-[cubic-bezier(0.22,0.72,0.2,1)] ${sidebarCollapsed ? 'md:grid-cols-[minmax(min-content,26rem)_1fr_1.25rem]' : 'md:grid-cols-[minmax(min-content,26rem)_1fr_22rem]'}`}>
 
         {/* ── Search ── col 1 / row 1 on desktop; first in flow on mobile ── */}
         <div className="pointer-events-auto md:col-start-1 md:row-start-1">
@@ -735,7 +735,7 @@ export default function HomePage() {
         </div>
 
         {/* ── Time ── col 2 / row 1 on desktop; second in flow on mobile ── */}
-        <div className="pointer-events-auto md:col-start-2 md:row-start-1 relative">
+        <div className={`pointer-events-auto md:col-start-2 md:row-start-1 relative ${timeBarCollapsed ? '-mt-3 md:-mt-6' : ''}`}>
           <div
             className={`rounded-xl border px-3 py-2 shadow-atmosphere backdrop-blur-md transition-all duration-500 ease-[cubic-bezier(0.22,0.72,0.2,1)] md:max-w-[28rem] md:mx-auto origin-top ${timeBarCollapsed ? 'opacity-0 -translate-y-full scale-y-0 max-h-0 overflow-hidden pointer-events-none' : 'opacity-100 translate-y-0 scale-y-100 max-h-[500px]'}`}
             style={{
@@ -820,34 +820,36 @@ export default function HomePage() {
 
         {/* ── Places ── col 3 / rows 1-2 (full height) on desktop;
               last in flow on mobile with max-height cap so map stays visible ── */}
-        <div className="md:col-start-3 md:row-start-1 md:row-span-2 flex min-h-0">
-          {/* ── Sidebar collapse toggle (attached to left edge of sidebar) ── */}
-          <div className="flex items-start pt-3">
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed((v) => !v)}
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="pointer-events-auto flex h-8 w-4 items-center justify-center rounded-l-md border border-r-0 backdrop-blur-md transition-all duration-500 ease-[cubic-bezier(0.22,0.72,0.2,1)] hover:w-5"
-              style={{
-                borderColor: inputBorder,
-                background: panelSurface,
-              }}
+        <div className="md:col-start-3 md:row-start-1 md:row-span-2 flex min-h-0 md:-mr-6">
+          {/* ── Sidebar collapse toggle (tab flush with panel's left edge) ── */}
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={`pointer-events-auto shrink-0 flex w-5 items-center justify-center self-start mt-3 h-10 rounded-l-lg border border-r-0 backdrop-blur-md transition-[width] duration-300 ease-[cubic-bezier(0.22,0.72,0.2,1)] hover:w-6`}
+            style={{
+              borderColor: inputBorder,
+              background: panelSurface,
+            }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke={inputText}
+              strokeWidth="2"
+              strokeLinecap="round"
+              className={`h-3 w-3 transition-transform duration-500 ${sidebarCollapsed ? 'rotate-180' : ''}`}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke={inputText}
-                strokeWidth="2"
-                strokeLinecap="round"
-                className={`h-3 w-3 transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`}
-              >
-                <polyline points="10 4 6 8 10 12" />
-              </svg>
-            </button>
-          </div>
+              <polyline points="10 4 6 8 10 12" />
+            </svg>
+          </button>
           <aside
-            className={`min-h-0 overflow-y-auto transition-all duration-500 ease-[cubic-bezier(0.22,0.72,0.2,1)] ${sidebarCollapsed ? 'opacity-0 w-0 pointer-events-none overflow-hidden max-h-0 md:max-h-none' : 'pointer-events-auto opacity-100 max-h-[42vh] md:max-h-none flex-1'}`}
+            className={`min-h-0 min-w-0 flex-1 ease-[cubic-bezier(0.22,0.72,0.2,1)] ${
+              sidebarCollapsed
+                ? 'opacity-0 pointer-events-none max-h-0 overflow-hidden md:max-h-none md:translate-x-3 transition-[opacity,transform] duration-200'
+                : 'pointer-events-auto opacity-100 max-h-[42vh] overflow-y-auto md:max-h-none md:translate-x-0 md:pr-6 transition-[opacity,transform] duration-500 delay-150'
+            }`}
             style={{ contain: "content" }}
           >
             <div
