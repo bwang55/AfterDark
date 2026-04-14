@@ -5,7 +5,7 @@ import { SEED_PLACES } from "../../shared/places";
 import type { Place } from "../../shared/types";
 import { discoverPlaces } from "../../lib/discovery";
 
-const allowOrigin = process.env.ALLOW_ORIGIN || "";
+const allowOrigin = process.env.ALLOW_ORIGIN || "*";
 const mapboxToken = process.env.MAPBOX_ACCESS_TOKEN;
 
 function numberOrUndefined(

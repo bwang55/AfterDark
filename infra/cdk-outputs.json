@@ -1,0 +1,11 @@
+{
+  "AfterDarkStack": {
+    "ChatHistoryEndpoint": "https://cz77q1x0sa.execute-api.us-east-1.amazonaws.com/prod/chat-history",
+    "ApiBaseUrl": "https://cz77q1x0sa.execute-api.us-east-1.amazonaws.com/prod/",
+    "PlacesApiEndpoint": "https://cz77q1x0sa.execute-api.us-east-1.amazonaws.com/prod/places",
+    "AfterDarkApiEndpoint1A013DD5": "https://cz77q1x0sa.execute-api.us-east-1.amazonaws.com/prod/",
+    "AiChatStreamUrl": "https://47wbi6q5pgnz6g5op3dn4l6zli0rkrha.lambda-url.us-east-1.on.aws/",
+    "PlacePhotoEndpoint": "https://cz77q1x0sa.execute-api.us-east-1.amazonaws.com/prod/place-photo",
+    "ChatTableName": "AfterDarkStack-ChatHistoryTableA22BA13C-15YQB9T7PKDON"
+  }
+}

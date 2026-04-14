@@ -70,7 +70,8 @@ declare const awslambda: {
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const allowOrigin = process.env.ALLOW_ORIGIN || "*";
+// NOTE: CORS handled by Function URL config (see infra/lib/afterdark-stack.ts).
+// Do NOT set access-control-* headers here — they'd duplicate the gateway's.
 
 const PERSONALITY: Record<string, string> = {
   morning:
@@ -267,21 +268,7 @@ async function readOpenAIStream(
 
 export const handler = awslambda.streamifyResponse(
   async (event, responseStream, _ctx) => {
-    const corsHeaders: Record<string, string> = {
-      "access-control-allow-origin": allowOrigin,
-      "access-control-allow-methods": "POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
-    };
-
-    // CORS preflight
-    if (event.requestContext.http.method === "OPTIONS") {
-      responseStream = awslambda.HttpResponseStream.from(responseStream, {
-        statusCode: 200,
-        headers: corsHeaders,
-      });
-      responseStream.end();
-      return;
-    }
+    // Function URL handles OPTIONS preflight at service layer — no handler code needed.
 
     // ── Validate request ──
 
@@ -289,7 +276,7 @@ export const handler = awslambda.streamifyResponse(
     if (!apiKey) {
       responseStream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 501,
-        headers: { "content-type": "application/json", ...corsHeaders },
+        headers: { "content-type": "application/json" },
       });
       responseStream.write(JSON.stringify({ error: "AI chat not configured" }));
       responseStream.end();
@@ -308,7 +295,7 @@ export const handler = awslambda.streamifyResponse(
     } catch {
       responseStream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
-        headers: { "content-type": "application/json", ...corsHeaders },
+        headers: { "content-type": "application/json" },
       });
       responseStream.write(JSON.stringify({ error: "Invalid JSON" }));
       responseStream.end();
@@ -319,7 +306,7 @@ export const handler = awslambda.streamifyResponse(
     if (!rawMsg || typeof rawMsg !== "string" || !rawMsg.trim() || typeof rawHour !== "number") {
       responseStream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
-        headers: { "content-type": "application/json", ...corsHeaders },
+        headers: { "content-type": "application/json" },
       });
       responseStream.write(JSON.stringify({ error: "message and hour required" }));
       responseStream.end();
@@ -364,7 +351,6 @@ export const handler = awslambda.streamifyResponse(
       headers: {
         "content-type": "application/x-ndjson",
         "cache-control": "no-cache",
-        ...corsHeaders,
       },
     });
 

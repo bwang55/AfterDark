@@ -14,7 +14,7 @@ import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE_NAME = process.env.CHAT_TABLE_NAME || "";
-const allowOrigin = process.env.ALLOW_ORIGIN || "";
+const allowOrigin = process.env.ALLOW_ORIGIN || "*";
 
 const MAX_MESSAGES = 50;
 

@@ -3,7 +3,7 @@ import type {
   APIGatewayProxyResultV2,
 } from "aws-lambda";
 
-const allowOrigin = process.env.ALLOW_ORIGIN || "";
+const allowOrigin = process.env.ALLOW_ORIGIN || "*";
 
 function errorResponse(
   statusCode: number,
