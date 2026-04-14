@@ -1,16 +1,14 @@
 "use client";
 
 import { useAppStore } from "@/store/useAppStore";
-import { resolveThemeByHour } from "@/shared/time-theme";
 
 /**
  * Returns whether UI should use light or dark styling based on current time.
- * morning + afternoon → light (map is bright)
- * dusk + night → dark (map is dark)
+ * 5–15h → light (map is bright)
+ * 15–5h → dark (map dims earlier than theme system's dusk at 18h)
  */
 export function useThemeMode() {
   const timeValue = useAppStore((s) => s.timeValue);
   const hour = ((timeValue % 24) + 24) % 24;
-  const theme = resolveThemeByHour(hour);
-  return theme === "morning" || theme === "afternoon";
+  return hour >= 5 && hour < 15;
 }
