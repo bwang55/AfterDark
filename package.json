@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cdk:synth": "npm --prefix infra run synth",
-    "cdk:deploy": "npm --prefix infra run deploy"
+    "cdk:deploy": "npm --prefix infra run deploy",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -25,6 +27,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/aws-lambda": "^8.10.147",
     "@types/mapbox-gl": "^3.4.1",
     "@types/node": "^22.13.4",

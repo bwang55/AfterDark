@@ -234,7 +234,12 @@ export const useAppStore = create<AppStore>()(
               }
             } else {
               // ── Non-streaming fallback (API Gateway returning JSON) ──
-              const data = await res.json();
+              let data: { text?: string; placeIds?: string[] };
+              try {
+                data = await res.json();
+              } catch {
+                throw new Error("Invalid AI chat response");
+              }
               set((s) => {
                 const msgs = [...s.aiChatMessages];
                 const last = { ...msgs[msgs.length - 1] };

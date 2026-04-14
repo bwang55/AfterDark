@@ -40,6 +40,16 @@ export function rgbaFromHex(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+export function mixRgb(start: string, end: string, progress: number): string {
+  const from = hexToRgb(start);
+  const to = hexToRgb(end);
+  const t = clamp(progress, 0, 1);
+  const r = Math.round(from[0] + (to[0] - from[0]) * t);
+  const g = Math.round(from[1] + (to[1] - from[1]) * t);
+  const b = Math.round(from[2] + (to[2] - from[2]) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 // ── Time utilities ──────────────────────────────────────────────────────
 
 export function normalizeHour(hour: number): number {

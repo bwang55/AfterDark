@@ -44,6 +44,9 @@ export async function GET(req: NextRequest) {
     findUrl.searchParams.set("key", key);
 
     const findRes = await fetch(findUrl.toString());
+    if (!findRes.ok) {
+      return new NextResponse(null, { status: 502 });
+    }
     const findData = await findRes.json();
 
     const photoRef =

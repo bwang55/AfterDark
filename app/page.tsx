@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { MapCanvas } from "@/components/MapCanvas";
+import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { useURLSync } from "@/hooks/useURLSync";
 import { usePlaces } from "@/hooks/usePlaces";
 import { ThemeTransitionLayer } from "@/components/ThemeTransitionLayer";
@@ -65,8 +66,13 @@ export default function HomePage() {
     ? MOCK_PLACES.find((p) => p.id === selectedPlaceId)?.coordinates ?? null
     : null;
 
+  // urlCenter only applies on initial deep-link load (recenterCount === 0).
+  // After user clicks Locate / Reset, userLocation takes priority.
   const focusCoordinates =
-    selectedPlaceCoords ?? urlCenter ?? userLocation ?? PROVIDENCE_CENTER;
+    selectedPlaceCoords ??
+    (recenterCount === 0 ? urlCenter : null) ??
+    userLocation ??
+    PROVIDENCE_CENTER;
 
   const viewportKey = selectedPlaceId
     ? "selected:" + selectedPlaceId
@@ -87,6 +93,11 @@ export default function HomePage() {
     [setSelectedPlaceId],
   );
 
+  const handleResetArea = useCallback(() => {
+    useAppStore.getState().resetArea();
+    setRecenterCount((c) => c + 1);
+  }, []);
+
   // ── Esc to close panels ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -104,20 +115,22 @@ export default function HomePage() {
   return (
     <main className="relative h-screen w-full overflow-hidden bg-slate-950 font-body">
       {/* ── Map ── z-0 */}
-      <MapCanvas
-        theme={theme}
-        timeValue={timeValue}
-        places={places}
-        hoveredPlaceId={hoveredPlaceId}
-        selectedPlaceId={selectedPlaceId}
-        focusCoordinates={focusCoordinates}
-        userLocation={userLocation}
-        viewportKey={viewportKey}
-        onSelectPlace={setSelectedPlaceId}
-        onDeselectPlace={handleDeselect}
-        onRecenter={handleRecenter}
-        onViewportChange={handleViewportChange}
-      />
+      <MapErrorBoundary>
+        <MapCanvas
+          theme={theme}
+          timeValue={timeValue}
+          places={places}
+          hoveredPlaceId={hoveredPlaceId}
+          selectedPlaceId={selectedPlaceId}
+          focusCoordinates={focusCoordinates}
+          userLocation={userLocation}
+          viewportKey={viewportKey}
+          onSelectPlace={setSelectedPlaceId}
+          onDeselectPlace={handleDeselect}
+          onRecenter={handleRecenter}
+          onViewportChange={handleViewportChange}
+        />
+      </MapErrorBoundary>
       <ThemeTransitionLayer timeValue={timeValue} />
 
       {/* ── UI Layer ── */}
@@ -152,7 +165,7 @@ export default function HomePage() {
 
           {/* Bottom-right: Reset + Locate stack */}
           <div className="flex flex-col items-center gap-2">
-            <ResetAreaButton />
+            <ResetAreaButton onReset={handleResetArea} />
             <LocateButton onLocate={handleRecenter} />
           </div>
         </div>

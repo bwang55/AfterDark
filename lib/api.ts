@@ -69,6 +69,11 @@ export async function fetchPlaces({
     throw new Error(`Failed to load places (${response.status})`);
   }
 
-  const payload = (await response.json()) as { places: RankedPlace[] };
-  return payload.places;
+  let payload: { places: RankedPlace[] };
+  try {
+    payload = (await response.json()) as { places: RankedPlace[] };
+  } catch {
+    throw new Error("Failed to parse places response");
+  }
+  return payload.places ?? [];
 }

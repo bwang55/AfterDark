@@ -1,5 +1,5 @@
 import type { TimeTheme } from "./types";
-import { hexToRgb } from "./utils";
+import { clamp, mixRgb } from "./utils";
 
 export interface TimeThemeMeta {
   id: TimeTheme;
@@ -147,22 +147,12 @@ const THEME_KEYFRAMES: ThemeKeyframe[] = [
   },
 ];
 
-function mixColor(start: string, end: string, progress: number): string {
-  const from = hexToRgb(start);
-  const to = hexToRgb(end);
-  const t = Math.min(1, Math.max(0, progress));
-  const r = Math.round(from[0] + (to[0] - from[0]) * t);
-  const g = Math.round(from[1] + (to[1] - from[1]) * t);
-  const b = Math.round(from[2] + (to[2] - from[2]) * t);
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
 export interface InterpolatedThemeVisual {
   gradient: string;
 }
 
 export function interpolateThemeVisual(hour: number): InterpolatedThemeVisual {
-  const clamped = Math.max(TIME_RANGE_START, Math.min(TIME_RANGE_END, hour));
+  const clamped = clamp(hour, TIME_RANGE_START, TIME_RANGE_END);
 
   let previous = THEME_KEYFRAMES[0];
   let next = THEME_KEYFRAMES[THEME_KEYFRAMES.length - 1];
@@ -178,9 +168,9 @@ export function interpolateThemeVisual(hour: number): InterpolatedThemeVisual {
   const span = Math.max(0.0001, next.hour - previous.hour);
   const progress = (clamped - previous.hour) / span;
 
-  const start = mixColor(previous.colors[0], next.colors[0], progress);
-  const middle = mixColor(previous.colors[1], next.colors[1], progress);
-  const end = mixColor(previous.colors[2], next.colors[2], progress);
+  const start = mixRgb(previous.colors[0], next.colors[0], progress);
+  const middle = mixRgb(previous.colors[1], next.colors[1], progress);
+  const end = mixRgb(previous.colors[2], next.colors[2], progress);
 
   return {
     gradient: `linear-gradient(132deg, ${start} 0%, ${middle} 52%, ${end} 100%)`,

@@ -241,37 +241,25 @@ function resolveLightPreset(timeValue: number): string {
   return "night";
 }
 
-let _lastLightPreset: string | null = null;
-let _lastPointColors: { pointColor: string; glowColor: string; activeColor: string } | null = null;
-
 function applyTheme(map: Map, timeValue: number): void {
-  // Quantize to nearest 0.5 so paint property updates fire less frequently
   const quantizedTime = Math.round(timeValue * 2) / 2;
   const pointPaint = pointPaintForTime(quantizedTime);
 
-  // Only update lightPreset when it actually changes — this triggers expensive
-  // 3D shadow recalculations inside Mapbox GL and is the main source of jank.
-  const lightPreset = resolveLightPreset(timeValue);
-  if (lightPreset !== _lastLightPreset) {
-    _lastLightPreset = lightPreset;
-    try {
-      map.setConfigProperty("basemap", "lightPreset", lightPreset);
-    } catch {
-      // Older styles
+  // Read the ACTUAL current lightPreset from the map instead of relying on a
+  // cache. This eliminates all stale-cache scenarios (style.load resets, HMR,
+  // Error Boundary remount, synchronous re-entrancy from style.load handlers).
+  const desiredPreset = resolveLightPreset(timeValue);
+  try {
+    const currentPreset = (map as any).getConfigProperty("basemap", "lightPreset");
+    if (currentPreset !== desiredPreset) {
+      map.setConfigProperty("basemap", "lightPreset", desiredPreset);
     }
+  } catch {
+    // Style not ready or API unavailable — skip, will retry on next effect / style.load
   }
 
-  // Skip point color updates if nothing changed — avoids redundant GL calls.
-  if (
-    _lastPointColors &&
-    _lastPointColors.pointColor === pointPaint.pointColor &&
-    _lastPointColors.glowColor === pointPaint.glowColor &&
-    _lastPointColors.activeColor === pointPaint.activeColor
-  ) {
-    return;
-  }
-  _lastPointColors = { ...pointPaint };
-
+  // Always apply point colors. setPaintProperty is cheap, and style.load
+  // recreates layers with default colors, so we must repaint every time.
   if (map.getLayer(PLACE_PULSE_LAYER_ID)) {
     map.setPaintProperty(PLACE_PULSE_LAYER_ID, "circle-color", pointPaint.glowColor);
   }
@@ -505,18 +493,25 @@ const MapCanvasInner = function MapCanvas({
 
     mapboxgl.accessToken = token;
 
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: "mapbox://styles/mapbox/standard",
-      center: [-71.4128, 41.824],
-      zoom: 15.5,
-      pitch: 72,
-      bearing: -8,
-      maxPitch: 78,
-      attributionControl: false,
-      antialias: true,
-      fadeDuration: 0,
-    });
+    let map: Map;
+    try {
+      map = new mapboxgl.Map({
+        container: containerRef.current,
+        style: "mapbox://styles/mapbox/standard",
+        center: [-71.4128, 41.824],
+        zoom: 15.5,
+        pitch: 72,
+        bearing: -8,
+        maxPitch: 78,
+        attributionControl: false,
+        antialias: true,
+        fadeDuration: 0,
+      });
+    } catch (err) {
+      console.error("[MapCanvas] Failed to initialize map:", err);
+      setMapEnabled(false);
+      return;
+    }
 
     mapRef.current = map;
 
@@ -565,6 +560,9 @@ const MapCanvasInner = function MapCanvas({
     // trigger style.load once — that's expected and handled below.
     map.once("load", () => {
       try {
+        // Set lightPreset FIRST so it batches with label configs into a single
+        // style reload, avoiding a flash of wrong colors on initial load.
+        map.setConfigProperty("basemap", "lightPreset", resolveLightPreset(timeValueRef.current));
         map.setConfigProperty("basemap", "showPointOfInterestLabels", false);
         map.setConfigProperty("basemap", "showTransitLabels", false);
         map.setConfigProperty("basemap", "showRoadLabels", true);
@@ -827,10 +825,7 @@ const MapCanvasInner = function MapCanvas({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !mapLoaded) {
-      return;
-    }
-
+    if (!map || !mapLoaded) return;
     applyTheme(map, timeValue);
   }, [theme, timeValue, mapLoaded]);
 
@@ -1007,13 +1002,18 @@ const MapCanvasInner = function MapCanvas({
         `${loc.lng},${loc.lat}?contours_minutes=5,10,15&polygons=true&denoise=1&access_token=${token}`;
 
       fetch(url)
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error(`Isochrone API ${r.status}`);
+          return r.json();
+        })
         .then((geojson) => {
           if (cancelled || !mapRef.current) return;
           isochroneCacheRef.current = { key: locKey, data: geojson };
           addLayers(mapRef.current, geojson);
         })
-        .catch(() => { /* noop */ });
+        .catch((err) => {
+          console.error("[MapCanvas] Isochrone fetch failed:", err);
+        });
     }
 
     return () => {
