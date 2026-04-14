@@ -1,25 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
-import type { MockPlace } from "@/data/mockPlaces";
-import { isPlaceOpen } from "@/data/mockPlaces";
+import type { RankedPlace } from "@/shared/types";
 import { useAppStore } from "@/store/useAppStore";
 import { useThemeMode } from "@/hooks/useThemeMode";
 
-export function LocationCard({
-  place,
-  hour,
-}: {
-  place: MockPlace;
-  hour: number;
-}) {
+export function LocationCard({ place }: { place: RankedPlace }) {
   const selectedPlaceId = useAppStore((s) => s.selectedPlaceId);
   const hoveredPlaceId = useAppStore((s) => s.hoveredPlaceId);
   const setSelectedPlaceId = useAppStore((s) => s.setSelectedPlaceId);
   const setHoveredPlaceId = useAppStore((s) => s.setHoveredPlaceId);
   const isLight = useThemeMode();
 
-  const open = isPlaceOpen(place, hour);
+  const open = place.openNow;
   const active = place.id === selectedPlaceId || place.id === hoveredPlaceId;
 
   return (
@@ -62,15 +55,15 @@ export function LocationCard({
       <p
         className={`mt-1 text-xs leading-relaxed ${isLight ? "text-slate-500" : "text-white/50"}`}
       >
-        {place.description}
+        {place.vibe}
       </p>
       <p
         className={`mt-1.5 text-[10px] ${isLight ? "text-slate-400" : "text-white/30"}`}
       >
-        {place.address}
+        {place.neighborhood}
       </p>
       <div className="mt-2 flex flex-wrap gap-1">
-        {place.vibeTags.map((tag) => (
+        {place.tags.map((tag) => (
           <span
             key={tag}
             className={`rounded-full border px-2 py-0.5 text-[9px] ${

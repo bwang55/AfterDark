@@ -4,14 +4,6 @@ import { SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import { useThemeMode } from "@/hooks/useThemeMode";
-import { CATEGORIES } from "@/data/mockPlaces";
-
-const CATEGORY_COLORS: Record<string, string> = {
-  bars: "#F59E0B",
-  food: "#10B981",
-  music: "#8B5CF6",
-  clubs: "#EC4899",
-};
 
 export function MapControlPanel() {
   const open = useAppStore((s) => s.mapControlOpen);
@@ -24,8 +16,6 @@ export function MapControlPanel() {
   const toggleWalkingCircles = useAppStore((s) => s.toggleWalkingCircles);
   const showPoiLabels = useAppStore((s) => s.showPoiLabels);
   const togglePoiLabels = useAppStore((s) => s.togglePoiLabels);
-  const hiddenCategories = useAppStore((s) => s.hiddenCategories);
-  const toggleCategory = useAppStore((s) => s.toggleCategoryVisibility);
   const isLight = useThemeMode();
 
   return (
@@ -64,44 +54,6 @@ export function MapControlPanel() {
             }`}
           >
             <div className="space-y-3 p-3">
-              {/* Legend */}
-              <div>
-                <span
-                  className={`text-[10px] font-medium uppercase tracking-widest ${
-                    isLight ? "text-slate-400" : "text-white/30"
-                  }`}
-                >
-                  Legend
-                </span>
-                <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
-                  {CATEGORIES.map(({ key, label }) => {
-                    const hidden = hiddenCategories.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => toggleCategory(key)}
-                        className={`flex items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition ${
-                          hidden
-                            ? "opacity-35"
-                            : isLight
-                              ? "hover:bg-black/[0.04]"
-                              : "hover:bg-white/[0.06]"
-                        }`}
-                      >
-                        <span
-                          className="inline-block h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/20 transition-opacity"
-                          style={{ backgroundColor: hidden ? "gray" : CATEGORY_COLORS[key] }}
-                        />
-                        <span className={`text-[11px] ${isLight ? "text-slate-500" : "text-white/60"}`}>
-                          {label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
               {/* Camera */}
               <div>
                 <span

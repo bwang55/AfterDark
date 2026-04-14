@@ -9,8 +9,20 @@
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { MOCK_PLACES } from "../../data/mockPlaces";
 import { resolveThemeByHour } from "../../shared/time-theme";
+
+// ── Place context passed from frontend ─────────────────────────────────
+
+interface OpenPlace {
+  id: string;
+  name: string;
+  vibe: string;
+  neighborhood: string;
+  tags: string[];
+  category?: string;
+}
+
+const ALLOWED_CATEGORIES = new Set(["cafe", "restaurant", "bar", "entertainment"]);
 
 // ── DynamoDB client (reused across invocations) ───────────────────────
 
@@ -118,24 +130,6 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
-      name: "filter_category",
-      description:
-        "Filter map to one category. 'all' to clear.",
-      parameters: {
-        type: "object",
-        properties: {
-          category: {
-            type: "string",
-            enum: ["bars", "food", "music", "clubs", "all"],
-          },
-        },
-        required: ["category"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
       name: "show_open_now",
       description: "Toggle filter for currently open places.",
       parameters: {
@@ -145,31 +139,53 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "filter_category",
+      description:
+        "Filter the map to a single venue category. Use null to clear. Categories are the venue kinds surfaced for each place.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: {
+            type: ["string", "null"],
+            enum: ["cafe", "restaurant", "bar", "entertainment", null],
+            description:
+              "One of: cafe, restaurant, bar, entertainment. Pass null to clear the filter.",
+          },
+        },
+        required: ["category"],
+      },
+    },
+  },
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(hour: number, openPlaceIds: string[]): string {
+function buildSystemPrompt(hour: number, openPlaces: OpenPlace[]): string {
   const theme = resolveThemeByHour(hour);
   const personality = PERSONALITY[theme] ?? PERSONALITY.night;
-  const openPlaces = MOCK_PLACES.filter((p) => openPlaceIds.includes(p.id));
   const placeLines = openPlaces
-    .map((p) => `${p.id}|${p.name}|${p.category}|${p.vibeTags.join(",")}|${p.address}`)
+    .map(
+      (p) =>
+        `${p.id}|${p.name}|${p.category ?? "unknown"}|${p.neighborhood}|${p.tags.join(",")}|${p.vibe}`,
+    )
     .join("\n");
 
-  return `You are AfterDark, a nightlife and city discovery assistant for Providence, RI. You speak in a warm, personal, conversational tone — like a knowledgeable local friend. Keep responses in the same language the user writes in.
+  return `You are AfterDark, a nightlife and city discovery assistant. You speak in a warm, personal, conversational tone — like a knowledgeable local friend. Keep responses in the same language the user writes in.
 
 ${personality}
 
 You can interact with the map directly using your tools:
 - Use navigate_to_place to highlight recommended places on the map
 - Use set_time to adjust the time when the user mentions specific hours
-- Use filter_category to focus the map on a specific type of venue
 - Use show_open_now to filter for currently open places
+- Use filter_category to narrow to one venue kind (cafe | restaurant | bar | entertainment); pass null to clear
 Always use tools when relevant — the user sees effects instantly on their map.
 
-Here are the places currently open in Providence. You MUST ONLY recommend from this list.
-Each line is: id|name|category|vibeTags|address
+Here are the places currently open near the user. You MUST ONLY recommend from this list.
+Each line is: id|name|category|neighborhood|tags|vibe
 ---
 ${placeLines}
 ---
@@ -180,16 +196,16 @@ Keep your responses conversational and concise (2-4 sentences). Be natural and w
 function processToolCall(
   name: string,
   argsRaw: string,
-  validIds: Set<string>,
+  placesById: Map<string, OpenPlace>,
 ): { action: Record<string, unknown> | null; result: string } {
   try {
     const args = JSON.parse(argsRaw);
     switch (name) {
       case "navigate_to_place": {
         const id = String(args.placeId ?? "");
-        if (!validIds.has(id)) return { action: null, result: "Place not found." };
-        const place = MOCK_PLACES.find((p) => p.id === id);
-        return { action: { type: "navigate_to_place", placeId: id }, result: `Navigated to ${place?.name ?? id}.` };
+        const place = placesById.get(id);
+        if (!place) return { action: null, result: "Place not found." };
+        return { action: { type: "navigate_to_place", placeId: id }, result: `Navigated to ${place.name}.` };
       }
       case "set_time": {
         const h = Number(args.hour);
@@ -197,13 +213,23 @@ function processToolCall(
         const clamped = Math.max(0, Math.min(30, h));
         return { action: { type: "set_time", hour: clamped }, result: `Time set to ${Math.floor(clamped)}:00.` };
       }
-      case "filter_category": {
-        const cat = args.category === "all" ? null : String(args.category ?? "");
-        return { action: { type: "filter_category", category: cat }, result: cat ? `Showing ${cat}.` : "Showing all." };
-      }
       case "show_open_now": {
         const on = Boolean(args.enabled);
         return { action: { type: "show_open_now", enabled: on }, result: on ? "Open only." : "Showing all." };
+      }
+      case "filter_category": {
+        const raw = args.category;
+        if (raw === null || raw === undefined || raw === "") {
+          return { action: { type: "filter_category", category: null }, result: "Category filter cleared." };
+        }
+        const cat = String(raw);
+        if (!ALLOWED_CATEGORIES.has(cat)) {
+          return { action: null, result: `Unknown category: ${cat}` };
+        }
+        return {
+          action: { type: "filter_category", category: cat },
+          result: `Filtered to ${cat}.`,
+        };
       }
       default:
         return { action: null, result: "Unknown tool." };
@@ -286,7 +312,7 @@ export const handler = awslambda.streamifyResponse(
     let body: {
       message?: string;
       hour?: number;
-      openPlaceIds?: string[];
+      openPlaces?: OpenPlace[];
       history?: { role: string; text: string }[];
       sessionId?: string;
     };
@@ -302,7 +328,7 @@ export const handler = awslambda.streamifyResponse(
       return;
     }
 
-    const { message: rawMsg, hour: rawHour, openPlaceIds, history, sessionId } = body;
+    const { message: rawMsg, hour: rawHour, openPlaces: rawPlaces, history, sessionId } = body;
     if (!rawMsg || typeof rawMsg !== "string" || !rawMsg.trim() || typeof rawHour !== "number") {
       responseStream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
@@ -315,17 +341,39 @@ export const handler = awslambda.streamifyResponse(
 
     const message = rawMsg.trim().slice(0, 500);
     const hour = Math.max(0, Math.min(24, rawHour));
-    const validIds = new Set(
-      Array.isArray(openPlaceIds)
-        ? openPlaceIds.filter((id): id is string => typeof id === "string").slice(0, 50)
-        : [],
-    );
+
+    // Validate + cap incoming place list
+    const sanitizedPlaces: OpenPlace[] = Array.isArray(rawPlaces)
+      ? rawPlaces
+          .filter(
+            (p): p is OpenPlace =>
+              !!p &&
+              typeof p.id === "string" &&
+              typeof p.name === "string" &&
+              typeof p.vibe === "string" &&
+              typeof p.neighborhood === "string" &&
+              Array.isArray(p.tags),
+          )
+          .slice(0, 50)
+          .map((p) => ({
+            id: p.id,
+            name: p.name.slice(0, 120),
+            vibe: p.vibe.slice(0, 240),
+            neighborhood: p.neighborhood.slice(0, 120),
+            tags: p.tags.filter((t): t is string => typeof t === "string").slice(0, 8),
+            category:
+              typeof p.category === "string" && ALLOWED_CATEGORIES.has(p.category)
+                ? p.category
+                : undefined,
+          }))
+      : [];
+    const placesById = new Map(sanitizedPlaces.map((p) => [p.id, p]));
 
     const endpoint = process.env.AI_CHAT_ENDPOINT_URL || "https://api.openai.com/v1/chat/completions";
     const model = process.env.AI_CHAT_MODEL || "gpt-4o";
 
     const messages: Array<Record<string, unknown>> = [
-      { role: "system", content: buildSystemPrompt(hour, Array.from(validIds)) },
+      { role: "system", content: buildSystemPrompt(hour, sanitizedPlaces) },
     ];
     if (Array.isArray(history)) {
       for (const m of history.slice(-6)) {
@@ -391,7 +439,7 @@ export const handler = awslambda.streamifyResponse(
         const toolResultMsgs: Record<string, unknown>[] = [];
 
         for (const tc of first.toolCalls) {
-          const { action, result } = processToolCall(tc.name, tc.arguments, validIds);
+          const { action, result } = processToolCall(tc.name, tc.arguments, placesById);
           if (action) actions.push(action);
           toolResultMsgs.push({ role: "tool", tool_call_id: tc.id, content: result });
         }
@@ -420,7 +468,7 @@ export const handler = awslambda.streamifyResponse(
         });
 
         const placeIds = actions
-          .filter((a) => a.type === "navigate_to_place" && validIds.has(a.placeId as string))
+          .filter((a) => a.type === "navigate_to_place" && placesById.has(a.placeId as string))
           .map((a) => a.placeId as string);
 
         nd({ t: "done", text: second.text.trim(), ids: placeIds, actions });

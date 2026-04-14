@@ -537,6 +537,11 @@ const MapCanvasInner = function MapCanvas({
         popupEl.style.transform = "none";
       }
 
+      // Lock camera center once at orbit start, then only rotate bearing each
+      // frame. setBearing is far lighter than jumpTo (no center re-projection,
+      // no terrain resampling), which keeps the orbit smooth even with 3D
+      // buildings + high pitch.
+      map.setCenter(center);
       const startBearing = map.getBearing();
       const startTime = performance.now();
       const SPEED = 3;
@@ -548,7 +553,7 @@ const MapCanvasInner = function MapCanvas({
           return;
         }
         const elapsed = (performance.now() - startTime) / 1000;
-        m.jumpTo({ bearing: startBearing - elapsed * SPEED, center });
+        m.setBearing(startBearing - elapsed * SPEED);
         orbitFrameRef.current = requestAnimationFrame(tick);
       };
       orbitFrameRef.current = requestAnimationFrame(tick);
@@ -1243,8 +1248,8 @@ const MapCanvasInner = function MapCanvas({
         const flyDuration = 1600;
         map.flyTo({
           center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
-          zoom: 19.8,
-          pitch: 74,
+          zoom: 18.2,
+          pitch: 60,
           bearing: map.getBearing() - 16,
           duration: flyDuration,
           essential: true,
@@ -1269,8 +1274,8 @@ const MapCanvasInner = function MapCanvas({
       } else {
         map.flyTo({
           center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
-          zoom: 18.6,
-          pitch: 68,
+          zoom: 17.2,
+          pitch: 55,
           bearing: -12,
           duration: 1400,
           essential: true,

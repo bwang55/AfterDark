@@ -8,6 +8,9 @@ export type PlaceTag =
   | "Cafe"
   | "Walkable";
 
+/** High-level venue category. Aligns with the discovery kinds surfaced by Mapbox. */
+export type PlaceCategory = "cafe" | "restaurant" | "bar" | "entertainment";
+
 export interface Coordinates {
   lng: number;
   lat: number;
@@ -24,6 +27,8 @@ export interface Place {
   bestFor: TimeTheme[];
   openHour: number;
   closeHour: number;
+  /** Venue category — optional so legacy data keeps working. */
+  category?: PlaceCategory;
 }
 
 export interface PlacesQuery {

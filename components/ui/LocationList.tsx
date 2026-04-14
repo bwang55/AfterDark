@@ -3,27 +3,25 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  CATEGORIES,
-  MOCK_PLACES,
-  isPlaceOpen,
-} from "@/data/mockPlaces";
 import { useAppStore } from "@/store/useAppStore";
 import { useThemeMode } from "@/hooks/useThemeMode";
+import { usePlaces } from "@/hooks/usePlaces";
+import type { PlaceTag } from "@/shared/types";
 import { LocationCard } from "./LocationCard";
 
-/** All unique vibe tags across mock data, sorted alphabetically. */
-const ALL_TAGS = Array.from(
-  new Set(MOCK_PLACES.flatMap((p) => p.vibeTags)),
-).sort();
+/** The six canonical vibe tags. */
+const ALL_TAGS: PlaceTag[] = [
+  "Quiet",
+  "Solo",
+  "Late Night",
+  "Weekend",
+  "Cafe",
+  "Walkable",
+];
 
 export function LocationList() {
   const open = useAppStore((s) => s.locationListOpen);
   const toggle = useAppStore((s) => s.toggleLocationList);
-  const selectedCategory = useAppStore((s) => s.selectedCategory);
-  const setSelectedCategory = useAppStore((s) => s.setSelectedCategory);
-  const timeValue = useAppStore((s) => s.timeValue);
-  const query = useAppStore((s) => s.query);
   const filterOpenNow = useAppStore((s) => s.filterOpenNow);
   const toggleFilterOpenNow = useAppStore((s) => s.toggleFilterOpenNow);
   const filterTags = useAppStore((s) => s.filterTags);
@@ -33,37 +31,21 @@ export function LocationList() {
 
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const hour = ((timeValue % 24) + 24) % 24;
+  // usePlaces returns RankedPlace[] with query + filterTags already applied.
+  const places = usePlaces();
 
   const hasActiveFilters = filterOpenNow || filterTags.length > 0;
 
+  // Local filter: only the "Open now" toggle happens client-side, because
+  // MapCanvas still wants to render closed markers for context.
   const filtered = useMemo(() => {
-    let list = MOCK_PLACES;
-    if (selectedCategory) {
-      list = list.filter((p) => p.category === selectedCategory);
-    }
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.vibeTags.some((t) => t.toLowerCase().includes(q)),
-      );
-    }
-    if (filterOpenNow) {
-      list = list.filter((p) => isPlaceOpen(p, hour));
-    }
-    if (filterTags.length > 0) {
-      list = list.filter((p) =>
-        filterTags.some((tag) => p.vibeTags.includes(tag)),
-      );
-    }
-    return list;
-  }, [selectedCategory, query, filterOpenNow, filterTags, hour]);
+    if (!filterOpenNow) return places;
+    return places.filter((p) => p.openNow);
+  }, [places, filterOpenNow]);
 
   const openCount = useMemo(
-    () => filtered.filter((p) => isPlaceOpen(p, hour)).length,
-    [filtered, hour],
+    () => filtered.filter((p) => p.openNow).length,
+    [filtered],
   );
 
   return (
@@ -110,30 +92,19 @@ export function LocationList() {
               : "border-white/10 bg-slate-900/60"
           }`}
         >
-          {/* ── Category tabs ── */}
+          {/* ── Header: title + filter toggle ── */}
           <div
-            className={`flex items-center gap-1 border-b px-3 pt-3 pb-2 ${
+            className={`flex items-center justify-between border-b px-4 pt-3 pb-2 ${
               isLight ? "border-black/[0.04]" : "border-white/[0.06]"
             }`}
           >
-            <div className="flex flex-1 gap-1">
-              <TabButton
-                active={selectedCategory === null}
-                onClick={() => setSelectedCategory(null)}
-                label="All"
-                isLight={isLight}
-              />
-              {CATEGORIES.map((c) => (
-                <TabButton
-                  key={c.key}
-                  active={selectedCategory === c.key}
-                  onClick={() => setSelectedCategory(c.key)}
-                  label={c.label}
-                  isLight={isLight}
-                />
-              ))}
-            </div>
-            {/* Filter toggle button */}
+            <span
+              className={`text-[11px] font-semibold uppercase tracking-widest ${
+                isLight ? "text-slate-600" : "text-white/70"
+              }`}
+            >
+              Places
+            </span>
             <button
               type="button"
               onClick={() => setFilterOpen((v) => !v)}
@@ -264,7 +235,7 @@ export function LocationList() {
             <div className="space-y-2">
               <AnimatePresence initial={false} mode="popLayout">
                 {filtered.map((place) => (
-                  <LocationCard key={place.id} place={place} hour={hour} />
+                  <LocationCard key={place.id} place={place} />
                 ))}
               </AnimatePresence>
               {filtered.length === 0 && (
@@ -279,33 +250,5 @@ export function LocationList() {
         </div>
       </motion.div>
     </>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  label,
-  isLight,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  isLight: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-        active
-          ? isLight ? "bg-sky-500/15 text-sky-600" : "bg-sky-400/15 text-sky-300"
-          : isLight
-            ? "text-slate-400 hover:bg-black/[0.04] hover:text-slate-600"
-            : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
-      }`}
-    >
-      {label}
-    </button>
   );
 }

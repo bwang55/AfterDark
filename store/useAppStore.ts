@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { MOCK_PLACES, isPlaceOpen } from "@/data/mockPlaces";
-import type { PlaceCategory } from "@/data/mockPlaces";
+import type { PlaceCategory, PlaceTag, RankedPlace } from "@/shared/types";
 import { resolveThemeByHour } from "@/shared/time-theme";
 
 const GREETINGS: Record<string, string> = {
@@ -48,11 +47,13 @@ interface AppState {
   aiChatMessage: string;
   aiChatSessionId: string;
 
+  // ── Places (shared across components) ──
+  knownPlaces: RankedPlace[];
+
   // ── Filters ──
-  selectedCategory: PlaceCategory | null;
-  hiddenCategories: PlaceCategory[];
   filterOpenNow: boolean;
-  filterTags: string[];
+  filterTags: PlaceTag[];
+  selectedCategory: PlaceCategory | null;
   timeValue: number;
 
   // ── Map config (persisted) ──
@@ -87,10 +88,11 @@ interface AppActions {
   setAiChatMessage: (msg: string) => void;
   hydrateAiChatHistory: () => Promise<void>;
 
-  setSelectedCategory: (cat: PlaceCategory | null) => void;
-  toggleCategoryVisibility: (cat: PlaceCategory) => void;
+  setKnownPlaces: (places: RankedPlace[]) => void;
+
   toggleFilterOpenNow: () => void;
-  toggleFilterTag: (tag: string) => void;
+  toggleFilterTag: (tag: PlaceTag) => void;
+  setSelectedCategory: (cat: PlaceCategory | null) => void;
   clearFilters: () => void;
   setTimeValue: (v: number) => void;
   resetToNow: () => void;
@@ -129,10 +131,11 @@ export const useAppStore = create<AppStore>()(
       aiChatMessage: "",
       aiChatSessionId: "",
 
-      selectedCategory: null,
-      hiddenCategories: [],
+      knownPlaces: [],
+
       filterOpenNow: false,
       filterTags: [],
+      selectedCategory: null,
       timeValue: currentHourValue(),
 
       mapStyle: "afterdark",
@@ -213,9 +216,21 @@ export const useAppStore = create<AppStore>()(
         if (!msg || get().aiChatStreaming) return;
 
         const hour = ((get().timeValue % 24) + 24) % 24;
-        const openPlaceIds = MOCK_PLACES
-          .filter((p) => isPlaceOpen(p, hour))
-          .map((p) => p.id);
+
+        // Build the set of currently-open places the AI can recommend from.
+        // Send full metadata (not just ids) so the backend is independent of
+        // any server-side seed list.
+        const openPlaces = get()
+          .knownPlaces.filter((p) => p.openNow)
+          .slice(0, 50)
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            vibe: p.vibe,
+            neighborhood: p.neighborhood,
+            tags: p.tags,
+            category: p.category,
+          }));
 
         // Build conversation history for context
         const history = get()
@@ -250,7 +265,7 @@ export const useAppStore = create<AppStore>()(
             const res = await fetch(endpoint, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: msg, hour, openPlaceIds, history, sessionId }),
+              body: JSON.stringify({ message: msg, hour, openPlaces, history, sessionId }),
             });
 
             if (!res.ok) throw new Error(`${res.status}`);
@@ -306,13 +321,24 @@ export const useAppStore = create<AppStore>()(
                                 if (typeof action.hour === "number")
                                   get().setTimeValue(action.hour);
                                 break;
-                              case "filter_category":
-                                get().setSelectedCategory(action.category ?? null);
-                                break;
                               case "show_open_now":
                                 if (typeof action.enabled === "boolean" && action.enabled !== get().filterOpenNow)
                                   get().toggleFilterOpenNow();
                                 break;
+                              case "filter_category": {
+                                const raw = action.category;
+                                if (raw === null || raw === undefined) {
+                                  get().setSelectedCategory(null);
+                                } else if (
+                                  raw === "cafe" ||
+                                  raw === "restaurant" ||
+                                  raw === "bar" ||
+                                  raw === "entertainment"
+                                ) {
+                                  get().setSelectedCategory(raw);
+                                }
+                                break;
+                              }
                             }
                           } catch { /* action failed, non-critical */ }
                         }
@@ -366,14 +392,10 @@ export const useAppStore = create<AppStore>()(
 
       closeAiChat: () => set({ aiChatOpen: false }),
 
+      // ── Places ──
+      setKnownPlaces: (places) => set({ knownPlaces: places }),
+
       // ── Filters ──
-      setSelectedCategory: (cat) => set({ selectedCategory: cat }),
-      toggleCategoryVisibility: (cat) =>
-        set((s) => ({
-          hiddenCategories: s.hiddenCategories.includes(cat)
-            ? s.hiddenCategories.filter((c) => c !== cat)
-            : [...s.hiddenCategories, cat],
-        })),
       toggleFilterOpenNow: () =>
         set((s) => ({ filterOpenNow: !s.filterOpenNow })),
       toggleFilterTag: (tag) =>
@@ -382,6 +404,7 @@ export const useAppStore = create<AppStore>()(
             ? s.filterTags.filter((t) => t !== tag)
             : [...s.filterTags, tag],
         })),
+      setSelectedCategory: (cat) => set({ selectedCategory: cat }),
       clearFilters: () =>
         set({
           filterOpenNow: false,
@@ -422,9 +445,9 @@ export const useAppStore = create<AppStore>()(
           selectedPlaceId: null,
           hoveredPlaceId: null,
           query: "",
-          selectedCategory: null,
           filterOpenNow: false,
           filterTags: [],
+          selectedCategory: null,
         }),
     }),
     {
@@ -441,7 +464,6 @@ export const useAppStore = create<AppStore>()(
         walkingCircles: s.walkingCircles,
         viewMode: s.viewMode,
         timeValue: s.timeValue,
-        hiddenCategories: s.hiddenCategories,
         aiChatSessionId: s.aiChatSessionId,
       }),
     },

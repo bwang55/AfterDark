@@ -18,7 +18,7 @@ import { ResetAreaButton } from "@/components/ui/ResetAreaButton";
 import { ViewModeButton } from "@/components/ui/ViewModeButton";
 import { CompassButton } from "@/components/ui/CompassButton";
 import { ShareButton } from "@/components/ui/ShareButton";
-import { MOCK_PLACES, PROVIDENCE_CENTER } from "@/data/mockPlaces";
+import { PROVIDENCE_CENTER } from "@/shared/places";
 import { useAppStore } from "@/store/useAppStore";
 import { resolveThemeByHour } from "@/shared/time-theme";
 
@@ -29,14 +29,20 @@ export default function HomePage() {
   const selectedPlaceId = useAppStore((s) => s.selectedPlaceId);
   const hoveredPlaceId = useAppStore((s) => s.hoveredPlaceId);
   const setSelectedPlaceId = useAppStore((s) => s.setSelectedPlaceId);
+  const setKnownPlaces = useAppStore((s) => s.setKnownPlaces);
 
   const { urlCenter, handleViewportChange } = useURLSync();
 
   const hour = ((timeValue % 24) + 24) % 24;
   const theme = resolveThemeByHour(hour);
 
-  // ── Unified data source (API or local MOCK_PLACES) ──
+  // ── Unified data source (API or local SEED_PLACES) ──
   const places = usePlaces();
+
+  // Keep a store copy for cross-component lookups (AI chat, popup, etc.)
+  useEffect(() => {
+    setKnownPlaces(places);
+  }, [places, setKnownPlaces]);
 
   // ── Map-specific state ──
   const [userLocation, setUserLocation] = useState<{
@@ -63,9 +69,10 @@ export default function HomePage() {
   }, []);
 
   // ── Derived props for MapCanvas ──
-  // Look up from ALL places (not filtered) so closed-place selection still has coordinates
+  // Look up from the current places list so the camera flies to a valid spot
+  // even when a place is selected from AI chat or a URL deep-link.
   const selectedPlaceCoords = selectedPlaceId
-    ? MOCK_PLACES.find((p) => p.id === selectedPlaceId)?.coordinates ?? null
+    ? places.find((p) => p.id === selectedPlaceId)?.coordinates ?? null
     : null;
 
   // urlCenter only applies on initial deep-link load (recenterCount === 0).

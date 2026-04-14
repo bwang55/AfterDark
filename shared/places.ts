@@ -1,4 +1,7 @@
-import type { Place } from "./types";
+import type { Coordinates, Place } from "./types";
+
+/** Default map center — Providence, RI downtown. */
+export const PROVIDENCE_CENTER: Coordinates = { lng: -71.4128, lat: 41.824 };
 
 export const SEED_PLACES: Place[] = [
   {
@@ -588,6 +591,7 @@ export const SEED_PLACES: Place[] = [
     bestFor: ["morning", "afternoon"],
     openHour: 6,
     closeHour: 22,
+    category: "entertainment",
   },
   {
     id: "providence-federal-calm",
@@ -600,6 +604,7 @@ export const SEED_PLACES: Place[] = [
     bestFor: ["morning", "afternoon", "dusk"],
     openHour: 7,
     closeHour: 21,
+    category: "cafe",
   },
   {
     id: "providence-college-hill-late",
@@ -612,5 +617,6 @@ export const SEED_PLACES: Place[] = [
     bestFor: ["dusk", "night"],
     openHour: 11,
     closeHour: 1,
+    category: "restaurant",
   },
 ];

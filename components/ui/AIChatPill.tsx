@@ -9,7 +9,6 @@ import {
   MapPin,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { MOCK_PLACES } from "@/data/mockPlaces";
 import { useAppStore } from "@/store/useAppStore";
 import { useThemeMode } from "@/hooks/useThemeMode";
 
@@ -44,8 +43,9 @@ function AssistantBubble({
   onSelectPlace: (id: string) => void;
   isLight: boolean;
 }) {
+  const knownPlaces = useAppStore((s) => s.knownPlaces);
   const places = placeIds
-    .map((id) => MOCK_PLACES.find((p) => p.id === id))
+    .map((id) => knownPlaces.find((p) => p.id === id))
     .filter(Boolean);
 
   return (
@@ -103,7 +103,7 @@ function AssistantBubble({
                       <p
                         className={`truncate text-[10px] ${isLight ? "text-slate-400" : "text-white/35"}`}
                       >
-                        {place.address}
+                        {place.neighborhood}
                       </p>
                     </div>
                   </button>

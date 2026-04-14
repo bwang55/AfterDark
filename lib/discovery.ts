@@ -48,6 +48,33 @@ const discoveryCache = new Map<string, { ts: number; data: RankedPlace[] }>();
 const DISCOVERY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes — reduces Mapbox API calls
 const DISCOVERY_CACHE_MAX = 30;
 
+// In-flight request dedupe. If two callers ask for the same key while the
+// first is still fetching, they share the same Promise — no duplicate API
+// calls. This is separate from the cache below (which only helps AFTER the
+// first request resolves).
+const inFlightRequests = new Map<string, Promise<RankedPlace[]>>();
+
+// Hard rate limit: at most this many real Mapbox calls per window.
+// The cache+dedupe already do most of the work; this is a backstop.
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_CALLS = 6;
+const recentCallTimestamps: number[] = [];
+
+function canMakeRealCall(): boolean {
+  const now = Date.now();
+  while (
+    recentCallTimestamps.length > 0 &&
+    now - recentCallTimestamps[0] > RATE_LIMIT_WINDOW_MS
+  ) {
+    recentCallTimestamps.shift();
+  }
+  return recentCallTimestamps.length < RATE_LIMIT_MAX_CALLS;
+}
+
+function recordRealCall(): void {
+  recentCallTimestamps.push(Date.now());
+}
+
 function discoveryCacheKey(args: DiscoverPlacesArgs): string {
   const bbox = args.bbox.map((v) => v.toFixed(3)).join(",");
   // Exclude hour from cache key so we fetch all POIs once per bbox+query
@@ -209,6 +236,7 @@ function toPlace(feature: DiscoveryFeature): Place | null {
     bestFor: profile.bestFor,
     openHour: profile.openHour,
     closeHour: profile.closeHour,
+    category: kind,
   };
 }
 
@@ -289,48 +317,82 @@ export async function discoverPlaces(
   }
 
   const cacheKey = discoveryCacheKey(args);
+
+  // 1. Cache — serves most repeat calls within the 10-minute TTL.
   const cached = getDiscoveryCache(cacheKey);
   if (cached) {
     console.log(`[discovery] Cache hit for key: ${cacheKey}`);
     return cached;
   }
 
-  const requested = clamp(args.limit ?? 140, 24, 220);
-  
-  // If user provided a query, search for that query directly along with main terms.
-  const termsToSearch = args.query && args.query.trim().length > 0 
-    ? [args.query.trim(), ...DISCOVERY_TERMS.slice(0, 2)]
-    : DISCOVERY_TERMS.slice(0, 3);
-    
-  console.log(`[discovery] Searching terms: ${termsToSearch.join(", ")} inside bbox: ${args.bbox.join(",")}`);
-    
-  const perTermLimit = Math.min(25, Math.max(6, Math.ceil((requested * 1.4) / termsToSearch.length)));
+  // 2. In-flight dedupe — concurrent callers share one real fetch.
+  const inFlight = inFlightRequests.get(cacheKey);
+  if (inFlight) {
+    console.log(`[discovery] In-flight dedupe for key: ${cacheKey}`);
+    return inFlight;
+  }
 
-  const results = await Promise.all(
-    termsToSearch.map((term) => fetchTerm(term, args, perTermLimit)),
-  );
+  // 3. Hard rate limit — backstop in case cache misses spike.
+  if (!canMakeRealCall()) {
+    console.warn(
+      `[discovery] Rate limit exceeded (${RATE_LIMIT_MAX_CALLS} calls / ${RATE_LIMIT_WINDOW_MS}ms). Returning empty to protect budget.`,
+    );
+    return [];
+  }
 
-  const flatResults = results.flat();
-  console.log(`[discovery] Found ${flatResults.length} raw places`);
+  const promise = (async (): Promise<RankedPlace[]> => {
+    recordRealCall();
 
-  const unique = new Map<string, Place>();
-  flatResults.forEach((place) => {
-    const key = `${place.name.toLowerCase()}|${place.coordinates.lng.toFixed(4)}|${place.coordinates.lat.toFixed(4)}`;
-    if (!unique.has(key)) {
-      unique.set(key, place);
-    }
-  });
+    const requested = clamp(args.limit ?? 140, 24, 220);
 
-  const finalPlaces = rankPlaces(Array.from(unique.values()), {
-    hour: args.hour,
-    tags: [],
-    limit: requested,
-    bbox: args.bbox,
-    lng: args.proximity?.lng,
-    lat: args.proximity?.lat,
-  });
-  
-  console.log(`[discovery] Returning ${finalPlaces.length} ranked unique places`);
-  setDiscoveryCache(cacheKey, finalPlaces);
-  return finalPlaces;
+    // If user provided a query, search for that query directly along with main terms.
+    const termsToSearch =
+      args.query && args.query.trim().length > 0
+        ? [args.query.trim(), ...DISCOVERY_TERMS.slice(0, 2)]
+        : DISCOVERY_TERMS.slice(0, 3);
+
+    console.log(
+      `[discovery] Searching terms: ${termsToSearch.join(", ")} inside bbox: ${args.bbox.join(",")}`,
+    );
+
+    const perTermLimit = Math.min(
+      25,
+      Math.max(6, Math.ceil((requested * 1.4) / termsToSearch.length)),
+    );
+
+    const results = await Promise.all(
+      termsToSearch.map((term) => fetchTerm(term, args, perTermLimit)),
+    );
+
+    const flatResults = results.flat();
+    console.log(`[discovery] Found ${flatResults.length} raw places`);
+
+    const unique = new Map<string, Place>();
+    flatResults.forEach((place) => {
+      const key = `${place.name.toLowerCase()}|${place.coordinates.lng.toFixed(4)}|${place.coordinates.lat.toFixed(4)}`;
+      if (!unique.has(key)) {
+        unique.set(key, place);
+      }
+    });
+
+    const finalPlaces = rankPlaces(Array.from(unique.values()), {
+      hour: args.hour,
+      tags: [],
+      limit: requested,
+      bbox: args.bbox,
+      lng: args.proximity?.lng,
+      lat: args.proximity?.lat,
+    });
+
+    console.log(`[discovery] Returning ${finalPlaces.length} ranked unique places`);
+    setDiscoveryCache(cacheKey, finalPlaces);
+    return finalPlaces;
+  })();
+
+  inFlightRequests.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightRequests.delete(cacheKey);
+  }
 }
