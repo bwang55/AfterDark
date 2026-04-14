@@ -7,8 +7,44 @@
  */
 
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { MOCK_PLACES } from "../../data/mockPlaces";
 import { resolveThemeByHour } from "../../shared/time-theme";
+
+// ── DynamoDB client (reused across invocations) ───────────────────────
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const CHAT_TABLE_NAME = process.env.CHAT_TABLE_NAME || "";
+const TTL_DAYS = 7;
+
+async function writeChatMessage(
+  sessionId: string,
+  role: "user" | "assistant",
+  text: string,
+  placeIds: string[] = [],
+): Promise<void> {
+  if (!CHAT_TABLE_NAME || !sessionId) return;
+  const now = Date.now();
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: CHAT_TABLE_NAME,
+        Item: {
+          sessionId,
+          timestamp: now,
+          role,
+          text,
+          placeIds,
+          ttl: Math.floor(now / 1000) + TTL_DAYS * 86400,
+        },
+      }),
+    );
+  } catch (err) {
+    // Non-fatal: logging only, don't break the chat flow
+    console.error("[chat-history] write failed:", err);
+  }
+}
 
 // ── awslambda runtime global (streaming support) ───────────────────────
 
@@ -265,6 +301,7 @@ export const handler = awslambda.streamifyResponse(
       hour?: number;
       openPlaceIds?: string[];
       history?: { role: string; text: string }[];
+      sessionId?: string;
     };
     try {
       body = JSON.parse(event.body || "{}");
@@ -278,7 +315,7 @@ export const handler = awslambda.streamifyResponse(
       return;
     }
 
-    const { message: rawMsg, hour: rawHour, openPlaceIds, history } = body;
+    const { message: rawMsg, hour: rawHour, openPlaceIds, history, sessionId } = body;
     if (!rawMsg || typeof rawMsg !== "string" || !rawMsg.trim() || typeof rawHour !== "number") {
       responseStream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 400,
@@ -310,6 +347,15 @@ export const handler = awslambda.streamifyResponse(
       }
     }
     messages.push({ role: "user", content: message });
+
+    // ── Persist user message (fire-and-forget, non-blocking) ──
+
+    const sid =
+      typeof sessionId === "string" && sessionId.length > 0 && sessionId.length < 128
+        ? sessionId
+        : "";
+    const writePromises: Promise<void>[] = [];
+    if (sid) writePromises.push(writeChatMessage(sid, "user", message));
 
     // ── Start streaming response ──
 
@@ -392,13 +438,20 @@ export const handler = awslambda.streamifyResponse(
           .map((a) => a.placeId as string);
 
         nd({ t: "done", text: second.text.trim(), ids: placeIds, actions });
+        if (sid) writePromises.push(writeChatMessage(sid, "assistant", second.text.trim(), placeIds));
       } else {
         // No tool calls — text already streamed via onDelta
         nd({ t: "done", text: first.text.trim(), ids: [] as string[] });
+        if (sid) writePromises.push(writeChatMessage(sid, "assistant", first.text.trim(), []));
       }
     } catch (err) {
       console.error("AI chat stream error:", err);
       nd({ t: "error" });
+    }
+
+    // Flush DynamoDB writes before Lambda terminates (each already swallows errors)
+    if (writePromises.length > 0) {
+      await Promise.allSettled(writePromises);
     }
 
     responseStream.end();

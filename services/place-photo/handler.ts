@@ -26,10 +26,7 @@ function errorResponse(
 export async function handler(
   event: APIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResultV2> {
-  if (event.requestContext.http.method === "OPTIONS") {
-    return errorResponse(200);
-  }
-
+  // REST API handles OPTIONS/CORS preflight at the gateway level — no need here.
   const key = process.env.GOOGLE_PLACES_API_KEY;
   if (!key) return errorResponse(501, "GOOGLE_PLACES_API_KEY not configured");
 

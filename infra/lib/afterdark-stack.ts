@@ -1,12 +1,17 @@
 import path from "node:path";
 
-import { CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
+import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import {
   Cors,
   LambdaIntegration,
   MethodLoggingLevel,
   RestApi,
 } from "aws-cdk-lib/aws-apigateway";
+import {
+  AttributeType,
+  BillingMode,
+  Table,
+} from "aws-cdk-lib/aws-dynamodb";
 import {
   FunctionUrlAuthType,
   HttpMethod,
@@ -29,6 +34,16 @@ export class AfterDarkStack extends Stack {
       allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["content-type", "authorization"],
     };
+
+    // ── DynamoDB: AI chat history ────────────────────────────────────
+
+    const chatTable = new Table(this, "ChatHistoryTable", {
+      partitionKey: { name: "sessionId", type: AttributeType.STRING },
+      sortKey: { name: "timestamp", type: AttributeType.NUMBER },
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "ttl",
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
 
     // ── Lambda: GET /places ──────────────────────────────────────────
 
@@ -67,8 +82,30 @@ export class AfterDarkStack extends Stack {
         OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
         AI_CHAT_MODEL: process.env.AI_CHAT_MODEL ?? "gpt-4o",
         AI_CHAT_ENDPOINT_URL: process.env.AI_CHAT_ENDPOINT_URL ?? "",
+        CHAT_TABLE_NAME: chatTable.tableName,
       },
     });
+    chatTable.grantWriteData(aiChatHandler);
+
+    // ── Lambda: GET /chat-history ────────────────────────────────────
+
+    const chatHistoryHandler = new NodejsFunction(this, "ChatHistoryHandler", {
+      runtime: Runtime.NODEJS_20_X,
+      timeout: Duration.seconds(8),
+      memorySize: 256,
+      entry: path.join(__dirname, "../../services/chat-history/handler.ts"),
+      handler: "handler",
+      bundling: {
+        sourceMap: true,
+        minify: true,
+        target: "node20",
+      },
+      environment: {
+        ALLOW_ORIGIN: process.env.ALLOW_ORIGIN ?? "",
+        CHAT_TABLE_NAME: chatTable.tableName,
+      },
+    });
+    chatTable.grantReadData(chatHistoryHandler);
 
     // ── Lambda: GET /place-photo ─────────────────────────────────────
 
@@ -127,6 +164,13 @@ export class AfterDarkStack extends Stack {
       new LambdaIntegration(placePhotoHandler),
     );
 
+    // GET /chat-history
+    const chatHistoryResource = api.root.addResource("chat-history");
+    chatHistoryResource.addMethod(
+      "GET",
+      new LambdaIntegration(chatHistoryHandler),
+    );
+
     // ── Outputs ──────────────────────────────────────────────────────
 
     new CfnOutput(this, "ApiBaseUrl", {
@@ -145,6 +189,14 @@ export class AfterDarkStack extends Stack {
 
     new CfnOutput(this, "PlacePhotoEndpoint", {
       value: api.url + "place-photo",
+    });
+
+    new CfnOutput(this, "ChatHistoryEndpoint", {
+      value: api.url + "chat-history",
+    });
+
+    new CfnOutput(this, "ChatTableName", {
+      value: chatTable.tableName,
     });
   }
 }

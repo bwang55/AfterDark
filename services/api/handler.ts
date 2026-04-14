@@ -42,10 +42,7 @@ function jsonResponse(
 export async function handler(
   event: APIGatewayProxyEventV2,
 ): Promise<APIGatewayProxyResultV2> {
-  if (event.requestContext.http.method === "OPTIONS") {
-    return jsonResponse(200, { ok: true });
-  }
-
+  // REST API handles OPTIONS/CORS preflight at the gateway level — no need here.
   const query = event.queryStringParameters ?? {};
 
   const hour = numberOrUndefined(query.time, 0, 24) ?? 22;

@@ -21,6 +21,13 @@ function currentHourValue(): number {
   return h < 6 ? h + 24 : h;
 }
 
+function generateSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
@@ -39,6 +46,7 @@ interface AppState {
   aiChatStreaming: boolean;
   aiChatMessages: ChatMessage[];
   aiChatMessage: string;
+  aiChatSessionId: string;
 
   // ── Filters ──
   selectedCategory: PlaceCategory | null;
@@ -77,6 +85,7 @@ interface AppActions {
   sendAiChat: () => void;
   closeAiChat: () => void;
   setAiChatMessage: (msg: string) => void;
+  hydrateAiChatHistory: () => Promise<void>;
 
   setSelectedCategory: (cat: PlaceCategory | null) => void;
   toggleCategoryVisibility: (cat: PlaceCategory) => void;
@@ -118,6 +127,7 @@ export const useAppStore = create<AppStore>()(
       aiChatStreaming: false,
       aiChatMessages: [],
       aiChatMessage: "",
+      aiChatSessionId: "",
 
       selectedCategory: null,
       hiddenCategories: [],
@@ -161,18 +171,38 @@ export const useAppStore = create<AppStore>()(
 
       // ── AI Chat ──
       openAiChat: () => {
-        const s = get();
-        if (s.aiChatMessages.length === 0) {
-          const hour = ((s.timeValue % 24) + 24) % 24;
-          const theme = resolveThemeByHour(hour);
-          set({
-            aiChatOpen: true,
-            aiChatMessages: [
-              { role: "assistant" as const, text: GREETINGS[theme] ?? GREETINGS.night, placeIds: [] },
-            ],
+        set({ aiChatOpen: true });
+        if (get().aiChatMessages.length > 0) return;
+
+        // Try to load prior history from server; fall back to time-based greeting.
+        get()
+          .hydrateAiChatHistory()
+          .finally(() => {
+            if (get().aiChatMessages.length > 0) return;
+            const hour = ((get().timeValue % 24) + 24) % 24;
+            const theme = resolveThemeByHour(hour);
+            set({
+              aiChatMessages: [
+                { role: "assistant" as const, text: GREETINGS[theme] ?? GREETINGS.night, placeIds: [] },
+              ],
+            });
           });
-        } else {
-          set({ aiChatOpen: true });
+      },
+
+      hydrateAiChatHistory: async () => {
+        const endpoint = process.env.NEXT_PUBLIC_CHAT_HISTORY_URL;
+        if (!endpoint) return;
+        const sid = get().aiChatSessionId;
+        if (!sid) return; // nothing to fetch yet
+        try {
+          const res = await fetch(`${endpoint}?sessionId=${encodeURIComponent(sid)}`);
+          if (!res.ok) return;
+          const data = (await res.json()) as { messages?: ChatMessage[] };
+          if (Array.isArray(data.messages) && data.messages.length > 0) {
+            set({ aiChatMessages: data.messages });
+          }
+        } catch {
+          // silent: hydration is best-effort
         }
       },
 
@@ -192,6 +222,13 @@ export const useAppStore = create<AppStore>()(
           .aiChatMessages.filter((m) => m.text)
           .slice(-6)
           .map((m) => ({ role: m.role, text: m.text }));
+
+        // Ensure we have a sessionId for cross-reload chat persistence.
+        let sessionId = get().aiChatSessionId;
+        if (!sessionId) {
+          sessionId = generateSessionId();
+          set({ aiChatSessionId: sessionId });
+        }
 
         // Add user message + empty assistant placeholder
         set((s) => ({
@@ -213,7 +250,7 @@ export const useAppStore = create<AppStore>()(
             const res = await fetch(endpoint, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: msg, hour, openPlaceIds, history }),
+              body: JSON.stringify({ message: msg, hour, openPlaceIds, history, sessionId }),
             });
 
             if (!res.ok) throw new Error(`${res.status}`);
@@ -405,6 +442,7 @@ export const useAppStore = create<AppStore>()(
         viewMode: s.viewMode,
         timeValue: s.timeValue,
         hiddenCategories: s.hiddenCategories,
+        aiChatSessionId: s.aiChatSessionId,
       }),
     },
   ),
