@@ -266,10 +266,12 @@ function applyActiveFilter(
 }
 
 function resolveLightPreset(timeValue: number): string {
-  // Extended dawn range (6–10) for a warm, cozy morning atmosphere.
-  if (timeValue < 10) return "dawn";
-  if (timeValue < 17.5) return "day";
-  if (timeValue < 19) return "dusk";
+  // Normalize: 0-5 is late night (same as 24-29)
+  const t = timeValue < 6 ? timeValue + 24 : timeValue;
+  if (t >= 22 || t < 6) return "night";
+  if (t < 10) return "dawn";
+  if (t < 17.5) return "day";
+  if (t < 19) return "dusk";
   return "night";
 }
 
@@ -986,10 +988,10 @@ const MapCanvasInner = function MapCanvas({
             paint: {
               "fill-color": [
                 "match", ["get", "contour"],
-                5, "rgba(56, 189, 248, 0.18)",
-                10, "rgba(99, 102, 241, 0.14)",
-                15, "rgba(168, 85, 247, 0.10)",
-                "rgba(100,100,200,0.08)",
+                5, "rgba(56, 189, 248, 0.30)",
+                10, "rgba(129, 140, 248, 0.22)",
+                15, "rgba(192, 132, 252, 0.16)",
+                "rgba(148,163,184,0.12)",
               ],
               "fill-emissive-strength": 0.6,
             },
@@ -1006,12 +1008,12 @@ const MapCanvasInner = function MapCanvas({
             paint: {
               "line-color": [
                 "match", ["get", "contour"],
-                5, "rgba(56, 189, 248, 0.55)",
-                10, "rgba(99, 102, 241, 0.45)",
-                15, "rgba(168, 85, 247, 0.35)",
-                "rgba(100,100,200,0.2)",
+                5, "rgba(56, 189, 248, 0.75)",
+                10, "rgba(129, 140, 248, 0.65)",
+                15, "rgba(192, 132, 252, 0.50)",
+                "rgba(148,163,184,0.3)",
               ],
-              "line-width": 1.5,
+              "line-width": 2,
               "line-emissive-strength": 0.8,
             },
           },
@@ -1073,13 +1075,13 @@ const MapCanvasInner = function MapCanvas({
       return;
     }
 
-    // Always stop orbit when camera target changes
-    stopOrbit();
-
     if (lastViewportKeyRef.current === viewportKey) {
       return;
     }
     lastViewportKeyRef.current = viewportKey;
+
+    // Only stop orbit when camera target actually changes
+    stopOrbit();
 
     if (focusCoordinates) {
       // Hide 3D buildings during long-distance fly (> 500m) to cut GPU load

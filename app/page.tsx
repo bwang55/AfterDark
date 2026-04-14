@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { MapCanvas } from "@/components/MapCanvas";
+import { useURLSync } from "@/hooks/useURLSync";
 import { ThemeTransitionLayer } from "@/components/ThemeTransitionLayer";
 import { SearchBox } from "@/components/ui/SearchBox";
 import { LocationList } from "@/components/ui/LocationList";
@@ -68,6 +69,8 @@ export default function HomePage() {
   const filterOpenNow = useAppStore((s) => s.filterOpenNow);
   const filterTags = useAppStore((s) => s.filterTags);
 
+  const { urlCenter, handleViewportChange } = useURLSync();
+
   const hour = ((timeValue % 24) + 24) % 24;
   const theme = resolveThemeByHour(hour);
 
@@ -123,13 +126,13 @@ export default function HomePage() {
   }, []);
 
   // ── Derived props for MapCanvas ──
-  const selectedPlace = useMemo(
-    () => places.find((p) => p.id === selectedPlaceId) ?? null,
-    [places, selectedPlaceId],
-  );
+  // Look up from ALL places (not filtered) so closed-place selection still has coordinates
+  const selectedPlaceCoords = selectedPlaceId
+    ? MOCK_PLACES.find((p) => p.id === selectedPlaceId)?.coordinates ?? null
+    : null;
 
   const focusCoordinates =
-    selectedPlace?.coordinates ?? userLocation ?? PROVIDENCE_CENTER;
+    selectedPlaceCoords ?? urlCenter ?? userLocation ?? PROVIDENCE_CENTER;
 
   const viewportKey = selectedPlaceId
     ? "selected:" + selectedPlaceId
@@ -179,6 +182,7 @@ export default function HomePage() {
         onSelectPlace={setSelectedPlaceId}
         onDeselectPlace={handleDeselect}
         onRecenter={handleRecenter}
+        onViewportChange={handleViewportChange}
       />
       <ThemeTransitionLayer timeValue={timeValue} />
 

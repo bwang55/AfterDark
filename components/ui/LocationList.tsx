@@ -9,6 +9,7 @@ import {
   isPlaceOpen,
 } from "@/data/mockPlaces";
 import { useAppStore } from "@/store/useAppStore";
+import { useThemeMode } from "@/hooks/useThemeMode";
 import { LocationCard } from "./LocationCard";
 
 /** All unique vibe tags across mock data, sorted alphabetically. */
@@ -28,6 +29,7 @@ export function LocationList() {
   const filterTags = useAppStore((s) => s.filterTags);
   const toggleFilterTag = useAppStore((s) => s.toggleFilterTag);
   const clearFilters = useAppStore((s) => s.clearFilters);
+  const isLight = useThemeMode();
 
   const [filterOpen, setFilterOpen] = useState(false);
 
@@ -71,7 +73,11 @@ export function LocationList() {
         type="button"
         onClick={toggle}
         aria-label={open ? "Collapse list" : "Expand list"}
-        className="pointer-events-auto absolute top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-white/10 bg-slate-900/60 text-white/50 backdrop-blur-xl transition-all hover:w-6 hover:text-white/80"
+        className={`pointer-events-auto absolute top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 backdrop-blur-xl transition-all hover:w-6 duration-500 ${
+          isLight
+            ? "border-black/[0.06] bg-white/70 text-slate-400 hover:text-slate-600"
+            : "border-white/10 bg-slate-900/60 text-white/50 hover:text-white/80"
+        }`}
         style={{
           left: open ? 340 : 0,
           transition: "left 300ms cubic-bezier(0.22,0.68,0,1)",
@@ -97,14 +103,25 @@ export function LocationList() {
         transition={{ duration: 0.3, ease: [0.22, 0.68, 0, 1] }}
         className="pointer-events-auto absolute inset-y-0 left-0 z-10 flex w-[340px] flex-col"
       >
-        <div className="flex h-full flex-col rounded-r-2xl border border-l-0 border-white/10 bg-slate-900/60 shadow-2xl backdrop-blur-xl">
+        <div
+          className={`flex h-full flex-col rounded-r-2xl border border-l-0 shadow-2xl backdrop-blur-xl transition-colors duration-500 ${
+            isLight
+              ? "border-black/[0.06] bg-white/70"
+              : "border-white/10 bg-slate-900/60"
+          }`}
+        >
           {/* ── Category tabs ── */}
-          <div className="flex items-center gap-1 border-b border-white/[0.06] px-3 pt-3 pb-2">
+          <div
+            className={`flex items-center gap-1 border-b px-3 pt-3 pb-2 ${
+              isLight ? "border-black/[0.04]" : "border-white/[0.06]"
+            }`}
+          >
             <div className="flex flex-1 gap-1">
               <TabButton
                 active={selectedCategory === null}
                 onClick={() => setSelectedCategory(null)}
                 label="All"
+                isLight={isLight}
               />
               {CATEGORIES.map((c) => (
                 <TabButton
@@ -112,6 +129,7 @@ export function LocationList() {
                   active={selectedCategory === c.key}
                   onClick={() => setSelectedCategory(c.key)}
                   label={c.label}
+                  isLight={isLight}
                 />
               ))}
             </div>
@@ -121,8 +139,10 @@ export function LocationList() {
               onClick={() => setFilterOpen((v) => !v)}
               className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition ${
                 filterOpen || hasActiveFilters
-                  ? "bg-sky-400/15 text-sky-300"
-                  : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
+                  ? isLight ? "bg-sky-500/15 text-sky-600" : "bg-sky-400/15 text-sky-300"
+                  : isLight
+                    ? "text-slate-400 hover:bg-black/[0.04] hover:text-slate-600"
+                    : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
               }`}
             >
               <Filter className="h-3.5 w-3.5" />
@@ -140,12 +160,16 @@ export function LocationList() {
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2, ease: [0.22, 0.68, 0, 1] }}
-                className="overflow-hidden border-b border-white/[0.06]"
+                className={`overflow-hidden border-b ${
+                  isLight ? "border-black/[0.04]" : "border-white/[0.06]"
+                }`}
               >
                 <div className="space-y-2.5 px-3 py-2.5">
                   {/* Open now toggle */}
                   <label className="flex cursor-pointer items-center justify-between">
-                    <span className="text-[11px] font-medium text-white/60">
+                    <span
+                      className={`text-[11px] font-medium ${isLight ? "text-slate-500" : "text-white/60"}`}
+                    >
                       Open now only
                     </span>
                     <button
@@ -154,7 +178,9 @@ export function LocationList() {
                       aria-checked={filterOpenNow}
                       onClick={toggleFilterOpenNow}
                       className={`relative h-5 w-9 rounded-full transition-colors ${
-                        filterOpenNow ? "bg-emerald-400/40" : "bg-white/10"
+                        filterOpenNow
+                          ? "bg-emerald-400/40"
+                          : isLight ? "bg-black/10" : "bg-white/10"
                       }`}
                     >
                       <span
@@ -167,7 +193,11 @@ export function LocationList() {
 
                   {/* Vibe tags */}
                   <div>
-                    <span className="text-[10px] font-medium uppercase tracking-widest text-white/30">
+                    <span
+                      className={`text-[10px] font-medium uppercase tracking-widest ${
+                        isLight ? "text-slate-400" : "text-white/30"
+                      }`}
+                    >
                       Vibe
                     </span>
                     <div className="mt-1.5 flex flex-wrap gap-1">
@@ -180,8 +210,12 @@ export function LocationList() {
                             onClick={() => toggleFilterTag(tag)}
                             className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition ${
                               active
-                                ? "border-sky-400/30 bg-sky-400/15 text-sky-300"
-                                : "border-white/[0.06] bg-white/[0.03] text-white/40 hover:border-white/10 hover:text-white/60"
+                                ? isLight
+                                  ? "border-sky-500/30 bg-sky-500/15 text-sky-600"
+                                  : "border-sky-400/30 bg-sky-400/15 text-sky-300"
+                                : isLight
+                                  ? "border-black/[0.04] bg-black/[0.02] text-slate-400 hover:border-black/[0.08] hover:text-slate-600"
+                                  : "border-white/[0.06] bg-white/[0.03] text-white/40 hover:border-white/10 hover:text-white/60"
                             }`}
                           >
                             {tag}
@@ -196,7 +230,11 @@ export function LocationList() {
                     <button
                       type="button"
                       onClick={clearFilters}
-                      className="flex items-center gap-1 text-[10px] text-white/30 transition hover:text-white/60"
+                      className={`flex items-center gap-1 text-[10px] transition ${
+                        isLight
+                          ? "text-slate-400 hover:text-slate-600"
+                          : "text-white/30 hover:text-white/60"
+                      }`}
                     >
                       <X className="h-3 w-3" />
                       Clear filters
@@ -209,10 +247,14 @@ export function LocationList() {
 
           {/* ── Count ── */}
           <div className="flex items-center justify-between px-4 pt-2 pb-1">
-            <span className="text-[10px] font-medium uppercase tracking-widest text-white/30">
+            <span
+              className={`text-[10px] font-medium uppercase tracking-widest ${
+                isLight ? "text-slate-400" : "text-white/30"
+              }`}
+            >
               {filtered.length} places
             </span>
-            <span className="text-[10px] text-emerald-400/70">
+            <span className="text-[10px] text-emerald-500/70">
               {openCount} open now
             </span>
           </div>
@@ -226,7 +268,9 @@ export function LocationList() {
                 ))}
               </AnimatePresence>
               {filtered.length === 0 && (
-                <p className="py-8 text-center text-xs text-white/30">
+                <p
+                  className={`py-8 text-center text-xs ${isLight ? "text-slate-400" : "text-white/30"}`}
+                >
                   No places match your filter.
                 </p>
               )}
@@ -242,10 +286,12 @@ function TabButton({
   active,
   onClick,
   label,
+  isLight,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
+  isLight: boolean;
 }) {
   return (
     <button
@@ -253,8 +299,10 @@ function TabButton({
       onClick={onClick}
       className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
         active
-          ? "bg-sky-400/15 text-sky-300"
-          : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
+          ? isLight ? "bg-sky-500/15 text-sky-600" : "bg-sky-400/15 text-sky-300"
+          : isLight
+            ? "text-slate-400 hover:bg-black/[0.04] hover:text-slate-600"
+            : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"
       }`}
     >
       {label}

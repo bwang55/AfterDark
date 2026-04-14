@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { MOCK_PLACES, isPlaceOpen } from "@/data/mockPlaces";
 import type { PlaceCategory } from "@/data/mockPlaces";
 
 function currentHourValue(): number {
@@ -8,7 +9,8 @@ function currentHourValue(): number {
   return h < 6 ? h + 24 : h;
 }
 
-export interface AIChatResponse {
+export interface ChatMessage {
+  role: "user" | "assistant";
   text: string;
   placeIds: string[];
 }
@@ -21,9 +23,10 @@ interface AppState {
   settingsOpen: boolean;
 
   // ── AI Chat ──
-  aiChatState: "idle" | "input" | "thinking" | "answer";
+  aiChatOpen: boolean;
+  aiChatStreaming: boolean;
+  aiChatMessages: ChatMessage[];
   aiChatMessage: string;
-  aiChatResponse: AIChatResponse | null;
 
   // ── Filters ──
   selectedCategory: PlaceCategory | null;
@@ -86,21 +89,6 @@ interface AppActions {
 
 export type AppStore = AppState & AppActions;
 
-const MOCK_AI_RESPONSES: AIChatResponse[] = [
-  {
-    text: "Sounds like you need somewhere with low lights and good energy. The Avery has this beautiful candlelit vibe — perfect for winding down. If you're feeling more adventurous, The Dark Lady always brings the energy.",
-    placeIds: ["p01", "p13"],
-  },
-  {
-    text: "For a mellow night I'd try Nick-a-Nees — there's usually a chill band playing and the crowd never tries too hard. Grab tacos from Tallulah's on the way home.",
-    placeIds: ["p11", "p05"],
-  },
-  {
-    text: "When I think cozy late-night Providence, I think The Parlour for jazz and then a walk to Hot Club to watch the water. Simple, perfect.",
-    placeIds: ["p12", "p02"],
-  },
-];
-
 export const useAppStore = create<AppStore>()(
   persist(
     (set, get) => ({
@@ -110,9 +98,10 @@ export const useAppStore = create<AppStore>()(
       mapControlOpen: false,
       settingsOpen: false,
 
-      aiChatState: "idle",
+      aiChatOpen: false,
+      aiChatStreaming: false,
+      aiChatMessages: [],
       aiChatMessage: "",
-      aiChatResponse: null,
 
       selectedCategory: null,
       filterOpenNow: false,
@@ -134,15 +123,9 @@ export const useAppStore = create<AppStore>()(
       selectedPlaceId: null,
       hoveredPlaceId: null,
 
-      // ── Panel toggles (with mutual-exclusion) ──
+      // ── Panel toggles ──
       toggleLocationList: () =>
-        set((s) => ({
-          locationListOpen: !s.locationListOpen,
-          // Close AI if opening list
-          ...(s.locationListOpen
-            ? {}
-            : { aiChatState: "idle" as const, aiChatResponse: null }),
-        })),
+        set((s) => ({ locationListOpen: !s.locationListOpen })),
 
       toggleTimeScroll: () =>
         set((s) => ({
@@ -159,46 +142,148 @@ export const useAppStore = create<AppStore>()(
       toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
 
       // ── AI Chat ──
-      openAiChat: () =>
-        set({
-          aiChatState: "input",
-          // Mutual: close LocationList
-          locationListOpen: false,
-        }),
+      openAiChat: () => set({ aiChatOpen: true }),
 
       setAiChatMessage: (msg) => set({ aiChatMessage: msg }),
 
       sendAiChat: () => {
         const msg = get().aiChatMessage.trim();
-        if (!msg) return;
-        set({ aiChatState: "thinking", locationListOpen: false });
-        // Mock 1.5s delay then random response
-        setTimeout(() => {
-          const resp =
-            MOCK_AI_RESPONSES[
-              Math.floor(Math.random() * MOCK_AI_RESPONSES.length)
-            ];
-          set({
-            aiChatState: "answer",
-            aiChatResponse: resp,
-            aiChatMessage: "",
-          });
-        }, 1500);
+        if (!msg || get().aiChatStreaming) return;
+
+        const hour = ((get().timeValue % 24) + 24) % 24;
+        const openPlaceIds = MOCK_PLACES
+          .filter((p) => isPlaceOpen(p, hour))
+          .map((p) => p.id);
+
+        // Build conversation history for context
+        const history = get()
+          .aiChatMessages.filter((m) => m.text)
+          .slice(-6)
+          .map((m) => ({ role: m.role, text: m.text }));
+
+        // Add user message + empty assistant placeholder
+        set((s) => ({
+          aiChatMessages: [
+            ...s.aiChatMessages,
+            { role: "user" as const, text: msg, placeIds: [] },
+            { role: "assistant" as const, text: "", placeIds: [] },
+          ],
+          aiChatMessage: "",
+          aiChatStreaming: true,
+          aiChatOpen: true,
+        }));
+
+        const endpoint =
+          process.env.NEXT_PUBLIC_AI_CHAT_URL || "/api/ai-chat";
+
+        (async () => {
+          try {
+            const res = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: msg, hour, openPlaceIds, history }),
+            });
+
+            if (!res.ok) throw new Error(`${res.status}`);
+
+            const contentType = res.headers.get("Content-Type") || "";
+
+            if (contentType.includes("ndjson") && res.body) {
+              // ── Streaming path ──
+              const reader = res.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = "";
+
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  try {
+                    const data = JSON.parse(line);
+                    if (data.t === "d") {
+                      set((s) => {
+                        const msgs = [...s.aiChatMessages];
+                        const last = { ...msgs[msgs.length - 1] };
+                        last.text += data.v;
+                        msgs[msgs.length - 1] = last;
+                        return { aiChatMessages: msgs };
+                      });
+                    } else if (data.t === "done") {
+                      set((s) => {
+                        const msgs = [...s.aiChatMessages];
+                        const last = { ...msgs[msgs.length - 1] };
+                        if (data.text) last.text = data.text;
+                        last.placeIds = Array.isArray(data.ids) ? data.ids : [];
+                        msgs[msgs.length - 1] = last;
+                        return { aiChatMessages: msgs, aiChatStreaming: false };
+                      });
+                    } else if (data.t === "error") {
+                      throw new Error("stream error");
+                    }
+                  } catch {
+                    // skip malformed line
+                  }
+                }
+              }
+            } else {
+              // ── Non-streaming fallback (API Gateway returning JSON) ──
+              const data = await res.json();
+              set((s) => {
+                const msgs = [...s.aiChatMessages];
+                const last = { ...msgs[msgs.length - 1] };
+                last.text = data.text || "";
+                last.placeIds = Array.isArray(data.placeIds)
+                  ? data.placeIds
+                  : [];
+                msgs[msgs.length - 1] = last;
+                return { aiChatMessages: msgs, aiChatStreaming: false };
+              });
+            }
+
+            // Safety: ensure streaming flag is cleared
+            if (get().aiChatStreaming) set({ aiChatStreaming: false });
+          } catch {
+            set((s) => {
+              const msgs = [...s.aiChatMessages];
+              if (msgs.length > 0) {
+                const last = { ...msgs[msgs.length - 1] };
+                if (!last.text) {
+                  last.text =
+                    "Sorry, I couldn't connect right now. Try again in a moment.";
+                }
+                msgs[msgs.length - 1] = last;
+              }
+              return { aiChatMessages: msgs, aiChatStreaming: false };
+            });
+          }
+        })();
       },
 
-      closeAiChat: () =>
-        set({ aiChatState: "idle", aiChatResponse: null, aiChatMessage: "" }),
+      closeAiChat: () => set({ aiChatOpen: false }),
 
       // ── Filters ──
       setSelectedCategory: (cat) => set({ selectedCategory: cat }),
-      toggleFilterOpenNow: () => set((s) => ({ filterOpenNow: !s.filterOpenNow })),
+      toggleFilterOpenNow: () =>
+        set((s) => ({ filterOpenNow: !s.filterOpenNow })),
       toggleFilterTag: (tag) =>
         set((s) => ({
           filterTags: s.filterTags.includes(tag)
             ? s.filterTags.filter((t) => t !== tag)
             : [...s.filterTags, tag],
         })),
-      clearFilters: () => set({ filterOpenNow: false, filterTags: [], selectedCategory: null }),
+      clearFilters: () =>
+        set({
+          filterOpenNow: false,
+          filterTags: [],
+          selectedCategory: null,
+        }),
       setTimeValue: (v) => set({ timeValue: v, nowLocked: false }),
       resetToNow: () => set({ timeValue: currentHourValue() }),
       toggleNowLocked: () =>
@@ -214,10 +299,14 @@ export const useAppStore = create<AppStore>()(
         set((s) => ({ showHouseNumbers: !s.showHouseNumbers })),
       setDisplayMode: (m) => set({ displayMode: m }),
       setMapPitch: (p) => set({ mapPitch: Math.round(p) }),
-      resetNorth: () => set((s) => ({ resetNorthCount: s.resetNorthCount + 1 })),
-      toggleWalkingCircles: () => set((s) => ({ walkingCircles: !s.walkingCircles })),
+      resetNorth: () =>
+        set((s) => ({ resetNorthCount: s.resetNorthCount + 1 })),
+      toggleWalkingCircles: () =>
+        set((s) => ({ walkingCircles: !s.walkingCircles })),
       toggleViewMode: () =>
-        set((s) => ({ viewMode: s.viewMode === "3d" ? "2d" as const : "3d" as const })),
+        set((s) => ({
+          viewMode: s.viewMode === "3d" ? ("2d" as const) : ("3d" as const),
+        })),
 
       // ── Selection ──
       setQuery: (q) => set({ query: q }),

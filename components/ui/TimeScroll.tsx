@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
+import { useThemeMode } from "@/hooks/useThemeMode";
 
 const ITEM_H = 36;
 const VISIBLE = 5;
@@ -26,11 +27,13 @@ function CircularWheelCol({
   selectedIndex,
   onSelect,
   locked = false,
+  isLight = false,
 }: {
   items: { label: string; value: number }[];
   selectedIndex: number;
   onSelect: (idx: number) => void;
   locked?: boolean;
+  isLight?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const count = items.length;
@@ -121,7 +124,9 @@ function CircularWheelCol({
     <div className="relative" style={{ height: HEIGHT, width: 52 }}>
       {/* Selection highlight */}
       <div
-        className="pointer-events-none absolute inset-x-0.5 z-10 rounded-md border border-sky-400/20 bg-sky-400/[0.08]"
+        className={`pointer-events-none absolute inset-x-0.5 z-10 rounded-md border ${
+          isLight ? "border-sky-500/20 bg-sky-500/[0.08]" : "border-sky-400/20 bg-sky-400/[0.08]"
+        }`}
         style={{ top: PAD, height: ITEM_H }}
       />
       <div
@@ -153,8 +158,8 @@ function CircularWheelCol({
                 fontSize: isSelected ? 20 : 14,
                 fontWeight: isSelected ? 600 : 400,
                 opacity: isSelected ? 1 : 0.3,
-                color: "white",
-                transition: "font-size 150ms, opacity 150ms",
+                color: isLight ? "#1e293b" : "white",
+                transition: "font-size 150ms, opacity 150ms, color 500ms",
                 fontVariantNumeric: "tabular-nums",
                 cursor: locked ? "default" : "pointer",
               }}
@@ -187,6 +192,7 @@ export function TimeScroll() {
   const setTimeValue = useAppStore((s) => s.setTimeValue);
   const nowLocked = useAppStore((s) => s.nowLocked);
   const toggleNowLocked = useAppStore((s) => s.toggleNowLocked);
+  const isLight = useThemeMode();
 
   const hour24 = ((Math.floor(timeValue) % 24) + 24) % 24;
   const minute = Math.round((timeValue - Math.floor(timeValue)) * 60) % 60;
@@ -210,7 +216,8 @@ export function TimeScroll() {
   const handleHour = useCallback(
     (idx: number) => {
       const h = HOURS[idx].value;
-      setTimeValue(h + minute / 60);
+      // Normalize late-night hours (0-5) to 24-29 for correct theme colors
+      setTimeValue((h < 6 ? h + 24 : h) + minute / 60);
     },
     [setTimeValue, minute],
   );
@@ -218,7 +225,8 @@ export function TimeScroll() {
   const handleMinute = useCallback(
     (idx: number) => {
       const m = MINUTES[idx].value;
-      setTimeValue(hour24 + m / 60);
+      // Normalize late-night hours (0-5) to 24-29 for correct theme colors
+      setTimeValue((hour24 < 6 ? hour24 + 24 : hour24) + m / 60);
     },
     [setTimeValue, hour24],
   );
@@ -229,16 +237,22 @@ export function TimeScroll() {
       <button
         type="button"
         onClick={toggle}
-        className="flex items-center gap-2 rounded-2xl border border-white/10 bg-slate-900/60 px-3 py-2.5 shadow-lg backdrop-blur-xl transition hover:border-white/20"
+        className={`flex items-center gap-2 rounded-2xl border px-3 py-2.5 shadow-lg backdrop-blur-xl transition-colors duration-500 ${
+          isLight
+            ? "border-black/[0.06] bg-white/70 hover:border-black/[0.10]"
+            : "border-white/10 bg-slate-900/60 hover:border-white/20"
+        }`}
       >
-        <Clock className="h-4 w-4 text-sky-300/80" />
-        <span className="text-xs font-medium tabular-nums text-white/80">
+        <Clock className={`h-4 w-4 ${isLight ? "text-sky-500/80" : "text-sky-300/80"}`} />
+        <span
+          className={`text-xs font-medium tabular-nums ${isLight ? "text-slate-700" : "text-white/80"}`}
+        >
           {timeToDisplay(timeValue)}
         </span>
         {open ? (
-          <ChevronUp className="h-3 w-3 text-white/40" />
+          <ChevronUp className={`h-3 w-3 ${isLight ? "text-slate-400" : "text-white/40"}`} />
         ) : (
-          <ChevronDown className="h-3 w-3 text-white/40" />
+          <ChevronDown className={`h-3 w-3 ${isLight ? "text-slate-400" : "text-white/40"}`} />
         )}
       </button>
 
@@ -250,11 +264,19 @@ export function TimeScroll() {
             animate={{ opacity: 1, height: "auto", scale: 1 }}
             exit={{ opacity: 0, height: 0, scale: 0.95 }}
             transition={{ duration: 0.25, ease: [0.22, 0.68, 0, 1] }}
-            className="w-[200px] origin-top overflow-hidden rounded-2xl border border-white/10 bg-slate-900/70 shadow-xl backdrop-blur-xl"
+            className={`w-[200px] origin-top overflow-hidden rounded-2xl border shadow-xl backdrop-blur-xl transition-colors duration-500 ${
+              isLight
+                ? "border-black/[0.06] bg-white/80"
+                : "border-white/10 bg-slate-900/70"
+            }`}
           >
             <div className="p-3">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[10px] font-medium uppercase tracking-widest text-white/30">
+                <span
+                  className={`text-[10px] font-medium uppercase tracking-widest ${
+                    isLight ? "text-slate-400" : "text-white/30"
+                  }`}
+                >
                   Set Time
                 </span>
                 <button
@@ -262,8 +284,10 @@ export function TimeScroll() {
                   onClick={toggleNowLocked}
                   className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition ${
                     nowLocked
-                      ? "border-emerald-400/30 bg-emerald-400/20 text-emerald-300"
-                      : "border-sky-400/20 bg-sky-400/10 text-sky-300 hover:bg-sky-400/20"
+                      ? "border-emerald-400/30 bg-emerald-400/20 text-emerald-500"
+                      : isLight
+                        ? "border-sky-500/20 bg-sky-500/10 text-sky-600 hover:bg-sky-500/20"
+                        : "border-sky-400/20 bg-sky-400/10 text-sky-300 hover:bg-sky-400/20"
                   }`}
                 >
                   NOW
@@ -276,8 +300,13 @@ export function TimeScroll() {
                   selectedIndex={hour24}
                   onSelect={handleHour}
                   locked={nowLocked}
+                  isLight={isLight}
                 />
-                <span className="pb-0.5 text-lg font-semibold text-white/30 select-none">
+                <span
+                  className={`pb-0.5 text-lg font-semibold select-none ${
+                    isLight ? "text-slate-300" : "text-white/30"
+                  }`}
+                >
                   :
                 </span>
                 <CircularWheelCol
@@ -285,6 +314,7 @@ export function TimeScroll() {
                   selectedIndex={minute}
                   onSelect={handleMinute}
                   locked={nowLocked}
+                  isLight={isLight}
                 />
               </div>
             </div>
