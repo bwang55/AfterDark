@@ -210,7 +210,7 @@ export function AIChatPill() {
               ref={scrollRef}
               className="space-y-2.5 overflow-y-auto"
               style={{
-                maxHeight: "42vh",
+                maxHeight: "min(30vh, 340px)",
                 maskImage:
                   "linear-gradient(to bottom, transparent 0%, black 14%, black 100%)",
                 WebkitMaskImage:

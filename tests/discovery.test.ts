@@ -169,6 +169,14 @@ describe("discovery cache", () => {
   });
 
   it("evicts oldest entry when cache exceeds max size (30)", async () => {
+    // The module enforces a sliding rate limit of 6 real calls / 60 s.
+    // Under vi.useFakeTimers() Date.now() is frozen, so a tight loop would
+    // trip the limiter starting with the 7th iteration and stop populating
+    // the cache. Stepping the clock by > RATE_LIMIT_WINDOW_MS / MAX_CALLS
+    // between iterations keeps the limiter window sliding cleanly, while
+    // staying well under the 10-minute cache TTL so earlier entries remain.
+    const STEP_MS = 11 * 1000;
+
     // Fill cache with 30 unique entries
     for (let i = 0; i < 30; i++) {
       mockFetch.mockResolvedValue(
@@ -181,11 +189,10 @@ describe("discovery cache", () => {
           bbox: [-71.42 + i * 0.1, 41.81, -71.39 + i * 0.1, 41.84],
         }),
       );
+      vi.advanceTimersByTime(STEP_MS);
     }
 
-    const callsAfter30 = mockFetch.mock.calls.length;
-
-    // Add 31st entry — should evict the first
+    // Add 31st entry — should evict the first (bbox matches i=0 / makeArgs() default)
     mockFetch.mockResolvedValue(
       mapboxResponse([makeFeature("e30", "Place 30", -71.0, 41.82)]),
     );
@@ -194,6 +201,7 @@ describe("discovery cache", () => {
         bbox: [-68.0, 41.81, -67.9, 41.84],
       }),
     );
+    vi.advanceTimersByTime(STEP_MS);
 
     // Now re-request the first entry — should be evicted, triggering new fetch
     mockFetch.mockResolvedValue(

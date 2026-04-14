@@ -9,3 +9,9 @@ cdk.out
 infra/node_modules
 *.log
 .DS_Store
+
+# Private engineering notes — not for public repo
+RESUME_NOTES.md
+RESUME_NOTES_EN.md
+NOTES.md
+*.private.md
