@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createRateLimiter, getClientIp } from "@/lib/rate-limit";
 
 // 30 requests per minute per IP — each request = 2 Google API calls
-const limiter = createRateLimiter({ windowMs: 60_000, max: 30 });
+const limiter = createRateLimiter({ windowMs: 60_000, max: 30, prefix: "rl:photo" });
 
 // Simple in-memory cache: placeKey → photoUrl (Google's CDN URL)
 const cache = new Map<string, string | null>();
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
-  if (!limiter.check(ip)) {
+  if (!(await limiter.check(ip))) {
     return new NextResponse(null, {
       status: 429,
       headers: { "Retry-After": "60" },

@@ -245,6 +245,7 @@ export function TimeScroll() {
       >
         <Clock className={`h-4 w-4 ${isLight ? "text-sky-500/80" : "text-sky-300/80"}`} />
         <span
+          suppressHydrationWarning
           className={`text-xs font-medium tabular-nums ${isLight ? "text-slate-700" : "text-white/80"}`}
         >
           {timeToDisplay(timeValue)}

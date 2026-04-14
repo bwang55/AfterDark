@@ -17,6 +17,7 @@ import { LocateButton } from "@/components/ui/LocateButton";
 import { ResetAreaButton } from "@/components/ui/ResetAreaButton";
 import { ViewModeButton } from "@/components/ui/ViewModeButton";
 import { CompassButton } from "@/components/ui/CompassButton";
+import { ShareButton } from "@/components/ui/ShareButton";
 import { MOCK_PLACES, PROVIDENCE_CENTER } from "@/data/mockPlaces";
 import { useAppStore } from "@/store/useAppStore";
 import { resolveThemeByHour } from "@/shared/time-theme";
@@ -165,8 +166,9 @@ export default function HomePage() {
           {/* Bottom-center: AI Chat */}
           <AIChatPill />
 
-          {/* Bottom-right: Reset + Locate stack */}
+          {/* Bottom-right: Share + Reset + Locate stack */}
           <div className="flex flex-col items-center gap-2">
+            <ShareButton />
             <ResetAreaButton onReset={handleResetArea} />
             <LocateButton onLocate={handleRecenter} />
           </div>

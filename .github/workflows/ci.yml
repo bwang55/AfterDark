@@ -1,4 +1,4 @@
-name: CI
+name: CI / CD
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
     branches: [main]
 
 jobs:
+  # ── CI: lint, type-check, test, build ─────────────────────────────────
   check:
     runs-on: ubuntu-latest
     steps:
@@ -32,3 +33,45 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN }}
+
+  # ── CD: deploy backend via CDK (main branch only) ────────────────────
+  deploy-backend:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install infra dependencies
+        run: cd infra && npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: CDK Deploy
+        run: cd infra && npx cdk deploy --require-approval never --outputs-file cdk-outputs.json
+        env:
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+          ALLOW_ORIGIN: ${{ vars.ALLOW_ORIGIN || '*' }}
+
+      - name: Print API endpoint
+        run: cat infra/cdk-outputs.json
+
+  # ── CD: frontend via Amplify (auto-triggered on push to main) ────────
+  # AWS Amplify Hosting is connected to this repo and auto-builds on push.
+  # The amplify.yml in the repo root defines the build spec.
+  # No explicit step needed here — Amplify picks up the push event directly.

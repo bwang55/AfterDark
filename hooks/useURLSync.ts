@@ -9,7 +9,7 @@ const DEBOUNCE_MS = 400;
 /**
  * Sync app state ↔ URL query params.
  *
- * Params: t (time), q (query), place, cat, lat, lng, z (zoom)
+ * Params: t (time), q (query), place, cat, open, view, pitch, lat, lng, z
  *
  * - On mount: read URL → store
  * - On state change: debounced write → URL (replaceState)
@@ -42,6 +42,19 @@ export function useURLSync() {
     if (cat !== null)
       useAppStore.setState({ selectedCategory: cat as PlaceCategory });
 
+    const open = sp.get("open");
+    if (open === "1") useAppStore.setState({ filterOpenNow: true });
+
+    const view = sp.get("view");
+    if (view === "2d" || view === "3d")
+      useAppStore.setState({ viewMode: view });
+
+    const pitch = sp.get("pitch");
+    if (pitch !== null) {
+      const pv = parseFloat(pitch);
+      if (!isNaN(pv)) useAppStore.setState({ mapPitch: Math.round(pv) });
+    }
+
     const lat = sp.get("lat");
     const lng = sp.get("lng");
     const z = sp.get("z");
@@ -70,12 +83,14 @@ export function useURLSync() {
     if (!initializedRef.current) return;
 
     const unsubscribe = useAppStore.subscribe((state, prevState) => {
-      // Only update URL when relevant state changes
       if (
         state.timeValue === prevState.timeValue &&
         state.query === prevState.query &&
         state.selectedPlaceId === prevState.selectedPlaceId &&
-        state.selectedCategory === prevState.selectedCategory
+        state.selectedCategory === prevState.selectedCategory &&
+        state.filterOpenNow === prevState.filterOpenNow &&
+        state.viewMode === prevState.viewMode &&
+        state.mapPitch === prevState.mapPitch
       ) {
         return;
       }
@@ -100,6 +115,9 @@ export function useURLSync() {
     if (s.query) sp.set("q", s.query);
     if (s.selectedPlaceId) sp.set("place", s.selectedPlaceId);
     if (s.selectedCategory) sp.set("cat", s.selectedCategory);
+    if (s.filterOpenNow) sp.set("open", "1");
+    if (s.viewMode !== "3d") sp.set("view", s.viewMode);
+    if (s.mapPitch !== 72) sp.set("pitch", String(s.mapPitch));
 
     if (mapCenterRef.current) {
       sp.set("lat", mapCenterRef.current.lat.toFixed(4));

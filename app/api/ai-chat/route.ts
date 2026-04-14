@@ -4,7 +4,7 @@ import { resolveThemeByHour } from "@/shared/time-theme";
 import { createRateLimiter, getClientIp } from "@/lib/rate-limit";
 
 // 10 requests per minute per IP — OpenAI calls are expensive
-const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+const limiter = createRateLimiter({ windowMs: 60_000, max: 10, prefix: "rl:chat" });
 
 const PERSONALITY: Record<string, string> = {
   morning:
@@ -16,6 +16,88 @@ const PERSONALITY: Record<string, string> = {
   night:
     "Right now it's late night. Offer emotional support, cozy recommendations, and winding-down vibes. Your vibe is intimate and gentle. If the user seems tired or emotional, validate their feelings before suggesting a spot.",
 };
+
+// ── OpenAI Function Calling tools ──────────────────────────────────────
+
+const TOOLS = [
+  {
+    type: "function" as const,
+    function: {
+      name: "navigate_to_place",
+      description:
+        "Select a place on the map and fly the camera to it. Use when recommending a specific place or when the user asks to see one.",
+      parameters: {
+        type: "object",
+        properties: {
+          placeId: {
+            type: "string",
+            description: "The place ID from the provided places list",
+          },
+        },
+        required: ["placeId"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "set_time",
+      description:
+        "Change the time displayed on the map. Use when the user asks about a specific time of day, e.g. 'show me tonight', 'what about morning', 'at 2am'.",
+      parameters: {
+        type: "object",
+        properties: {
+          hour: {
+            type: "number",
+            description:
+              "Hour of day (0-24). Examples: 8 = 8 AM, 14 = 2 PM, 22 = 10 PM, 2 = 2 AM",
+          },
+        },
+        required: ["hour"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "filter_category",
+      description:
+        "Filter the map to show only one category. Use when the user says 'show me bars', 'just food places', etc. Use 'all' to clear the filter.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            enum: ["bars", "food", "music", "clubs", "all"],
+            description:
+              "Category to show, or 'all' to clear the filter and show everything",
+          },
+        },
+        required: ["category"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "show_open_now",
+      description:
+        "Toggle the filter to only show places that are open at the current map time.",
+      parameters: {
+        type: "object",
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "true to show only open places, false to show all",
+          },
+        },
+        required: ["enabled"],
+      },
+    },
+  },
+];
+
+// ── System prompt builder ──────────────────────────────────────────────
 
 function buildSystemPrompt(hour: number, openPlaceIds: string[]): string {
   const theme = resolveThemeByHour(hour);
@@ -33,29 +115,78 @@ function buildSystemPrompt(hour: number, openPlaceIds: string[]): string {
 
 ${personality}
 
+You can interact with the map directly using your tools:
+- Use navigate_to_place to highlight recommended places on the map
+- Use set_time to adjust the time when the user mentions specific hours
+- Use filter_category to focus the map on a specific type of venue
+- Use show_open_now to filter for currently open places
+Always use tools when relevant — the user sees effects instantly on their map.
+
 Here are the places currently open in Providence. You MUST ONLY recommend from this list.
 Each line is: id|name|category|vibeTags|address
 ---
 ${placeLines}
 ---
 
-Response format:
-1. Write your conversational response (2-4 sentences). Be natural and warm.
-2. Then write a line containing ONLY three dashes: ---
-3. Then write the place IDs you recommend, separated by commas (1-3 IDs from the list above).
-4. If no places match, write "none" after the separator.
-
-Example:
-I think you'd love somewhere with low lights tonight. The Avery has this beautiful candlelit vibe that's perfect for winding down.
----
-p01
-
-Important: Always include the --- separator line. Never skip it. Never put place IDs in the text portion.`;
+Keep your responses conversational and concise (2-4 sentences). Be natural and warm. When recommending places, use the navigate_to_place tool rather than listing IDs in your text.`;
 }
+
+// ── Tool call result builder ───────────────────────────────────────────
+
+function processToolCall(
+  name: string,
+  argsRaw: string,
+  validIds: Set<string>,
+): { action: Record<string, unknown> | null; result: string } {
+  try {
+    const args = JSON.parse(argsRaw);
+    switch (name) {
+      case "navigate_to_place": {
+        const id = String(args.placeId ?? "");
+        if (!validIds.has(id))
+          return { action: null, result: "Place not found in the current list." };
+        const place = MOCK_PLACES.find((p) => p.id === id);
+        return {
+          action: { type: "navigate_to_place", placeId: id },
+          result: `Navigated to ${place?.name ?? id}.`,
+        };
+      }
+      case "set_time": {
+        const h = Number(args.hour);
+        if (isNaN(h)) return { action: null, result: "Invalid hour." };
+        const clamped = Math.max(0, Math.min(30, h));
+        return {
+          action: { type: "set_time", hour: clamped },
+          result: `Time set to ${Math.floor(clamped)}:${String(Math.round((clamped % 1) * 60)).padStart(2, "0")}.`,
+        };
+      }
+      case "filter_category": {
+        const cat = args.category === "all" ? null : String(args.category ?? "");
+        return {
+          action: { type: "filter_category", category: cat },
+          result: cat ? `Showing only ${cat}.` : "Showing all categories.",
+        };
+      }
+      case "show_open_now": {
+        const on = Boolean(args.enabled);
+        return {
+          action: { type: "show_open_now", enabled: on },
+          result: on ? "Showing only open places." : "Showing all places.",
+        };
+      }
+      default:
+        return { action: null, result: "Unknown tool." };
+    }
+  } catch {
+    return { action: null, result: "Failed to parse arguments." };
+  }
+}
+
+// ── POST handler ───────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
-  if (!limiter.check(ip)) {
+  if (!(await limiter.check(ip))) {
     return NextResponse.json(
       { error: "Too many requests — try again in a minute" },
       { status: 429, headers: { "Retry-After": "60" } },
@@ -126,6 +257,8 @@ export async function POST(req: NextRequest) {
   }
   messages.push({ role: "user", content: message.trim() });
 
+  const model = process.env.AI_CHAT_MODEL || "gpt-4o";
+
   try {
     const res = await fetch(endpoint, {
       method: "POST",
@@ -134,11 +267,12 @@ export async function POST(req: NextRequest) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.AI_CHAT_MODEL || "gpt-4o-mini",
+        model,
         messages,
         temperature: 0.7,
         max_tokens: 400,
         stream: true,
+        tools: TOOLS,
       }),
       signal: AbortSignal.timeout(20000),
     });
@@ -164,7 +298,14 @@ export async function POST(req: NextRequest) {
         let separatorFound = false;
         let sseBuffer = "";
 
+        // Tool-call accumulation
+        const toolCallMap = new Map<
+          number,
+          { id: string; name: string; arguments: string }
+        >();
+
         try {
+          // ── Phase 1: Stream first OpenAI response ──
           // eslint-disable-next-line no-constant-condition
           while (true) {
             const { done, value } = await openaiReader.read();
@@ -184,19 +325,38 @@ export async function POST(req: NextRequest) {
 
               try {
                 const data = JSON.parse(trimmed.slice(6));
-                const content = data.choices?.[0]?.delta?.content as
-                  | string
-                  | undefined;
+                const delta = data.choices?.[0]?.delta;
+
+                // Accumulate tool calls (mutually exclusive with content)
+                const deltaTC = delta?.tool_calls;
+                if (deltaTC) {
+                  for (const tc of deltaTC) {
+                    if (!toolCallMap.has(tc.index)) {
+                      toolCallMap.set(tc.index, {
+                        id: "",
+                        name: "",
+                        arguments: "",
+                      });
+                    }
+                    const entry = toolCallMap.get(tc.index)!;
+                    if (tc.id) entry.id = tc.id;
+                    if (tc.function?.name) entry.name = tc.function.name;
+                    if (tc.function?.arguments)
+                      entry.arguments += tc.function.arguments;
+                  }
+                }
+
+                // Forward text content (only present when model doesn't use tools)
+                const content = delta?.content as string | undefined;
                 if (!content) continue;
 
                 accumulated += content;
 
-                if (separatorFound) continue; // after separator — don't forward
+                if (separatorFound) continue;
 
                 const sepIdx = accumulated.indexOf("\n---");
                 if (sepIdx >= 0) {
                   separatorFound = true;
-                  // Forward any text in this delta that's before the separator
                   const toForward = accumulated.substring(textSent, sepIdx);
                   if (toForward) {
                     controller.enqueue(
@@ -206,7 +366,6 @@ export async function POST(req: NextRequest) {
                     );
                   }
                 } else {
-                  // Forward delta, but hold back last 4 chars (possible partial separator)
                   const safeEnd = Math.max(
                     textSent,
                     accumulated.length - 4,
@@ -227,56 +386,181 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Flush any remaining text before separator
-          if (!separatorFound && textSent < accumulated.length) {
-            const remaining = accumulated.substring(textSent);
-            // Check one more time for separator in remaining
-            const sepIdx = remaining.indexOf("\n---");
-            if (sepIdx >= 0) {
-              separatorFound = true;
-              const toForward = remaining.substring(0, sepIdx);
-              if (toForward) {
+          // ── Phase 2: Handle tool calls OR finalize text ──
+
+          if (toolCallMap.size > 0) {
+            // ── Tool-call path ──────────────────────────────────────
+            const actions: Record<string, unknown>[] = [];
+            const toolCalls = Array.from(toolCallMap.values());
+
+            // Build assistant tool_calls message for the follow-up
+            const assistantMsg: Record<string, unknown> = {
+              role: "assistant",
+              content: null,
+              tool_calls: toolCalls.map((tc) => ({
+                id: tc.id,
+                type: "function",
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+            };
+
+            // Process each tool call → action + result
+            const toolResultMsgs: {
+              role: string;
+              tool_call_id: string;
+              content: string;
+            }[] = [];
+
+            for (const tc of toolCalls) {
+              const { action, result } = processToolCall(
+                tc.name,
+                tc.arguments,
+                validIds,
+              );
+              if (action) actions.push(action);
+              toolResultMsgs.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: result,
+              });
+            }
+
+            // ── Phase 3: Second OpenAI call (streaming, no tools) ──
+            const secondRes = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                model,
+                messages: [
+                  ...messages,
+                  assistantMsg,
+                  ...toolResultMsgs,
+                ],
+                temperature: 0.7,
+                max_tokens: 400,
+                stream: true,
+                // No tools → prevents recursive calling
+              }),
+              signal: AbortSignal.timeout(20000),
+            });
+
+            if (!secondRes.ok || !secondRes.body) {
+              throw new Error(`Second call failed: ${secondRes.status}`);
+            }
+
+            const reader2 = secondRes.body.getReader();
+            let sseBuffer2 = "";
+            let text2 = "";
+
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              const { done, value } = await reader2.read();
+              if (done) break;
+
+              sseBuffer2 += decoder.decode(value, { stream: true });
+              const lines2 = sseBuffer2.split("\n");
+              sseBuffer2 = lines2.pop() || "";
+
+              for (const l of lines2) {
+                const tr = l.trim();
+                if (!tr.startsWith("data: ") || tr === "data: [DONE]")
+                  continue;
+                try {
+                  const d = JSON.parse(tr.slice(6));
+                  const c = d.choices?.[0]?.delta?.content as
+                    | string
+                    | undefined;
+                  if (c) {
+                    text2 += c;
+                    controller.enqueue(
+                      encoder.encode(
+                        JSON.stringify({ t: "d", v: c }) + "\n",
+                      ),
+                    );
+                  }
+                } catch {
+                  /* skip */
+                }
+              }
+            }
+
+            // Extract placeIds from navigate actions
+            const placeIds = actions
+              .filter(
+                (a) =>
+                  a.type === "navigate_to_place" &&
+                  validIds.has(a.placeId as string),
+              )
+              .map((a) => a.placeId as string);
+
+            controller.enqueue(
+              encoder.encode(
+                JSON.stringify({
+                  t: "done",
+                  text: text2.trim(),
+                  ids: placeIds,
+                  actions,
+                }) + "\n",
+              ),
+            );
+          } else {
+            // ── Text-only path (no tool calls) ─────────────────────
+            // Flush remaining text before separator
+            if (!separatorFound && textSent < accumulated.length) {
+              const remaining = accumulated.substring(textSent);
+              const sepIdx = remaining.indexOf("\n---");
+              if (sepIdx >= 0) {
+                separatorFound = true;
+                const toForward = remaining.substring(0, sepIdx);
+                if (toForward) {
+                  controller.enqueue(
+                    encoder.encode(
+                      JSON.stringify({ t: "d", v: toForward }) + "\n",
+                    ),
+                  );
+                }
+              } else if (remaining) {
                 controller.enqueue(
                   encoder.encode(
-                    JSON.stringify({ t: "d", v: toForward }) + "\n",
+                    JSON.stringify({ t: "d", v: remaining }) + "\n",
                   ),
                 );
               }
-            } else if (remaining) {
-              controller.enqueue(
-                encoder.encode(
-                  JSON.stringify({ t: "d", v: remaining }) + "\n",
-                ),
-              );
             }
+
+            // Parse separator for placeIds (fallback when tools not used)
+            const sepIdx = accumulated.indexOf("\n---");
+            let displayText: string;
+            let placeIds: string[];
+
+            if (sepIdx >= 0) {
+              displayText = accumulated.substring(0, sepIdx).trim();
+              const idsStr = accumulated
+                .substring(sepIdx + 4)
+                .replace(/^[\s\n-]+/, "")
+                .trim();
+              placeIds = idsStr
+                .split(/[,\s]+/)
+                .map((s) => s.trim())
+                .filter((id) => id && id !== "none" && validIds.has(id));
+            } else {
+              displayText = accumulated.trim();
+              placeIds = [];
+            }
+
+            controller.enqueue(
+              encoder.encode(
+                JSON.stringify({
+                  t: "done",
+                  text: displayText,
+                  ids: placeIds,
+                }) + "\n",
+              ),
+            );
           }
-
-          // Parse accumulated text for separator and place IDs
-          const sepIdx = accumulated.indexOf("\n---");
-          let displayText: string;
-          let placeIds: string[];
-
-          if (sepIdx >= 0) {
-            displayText = accumulated.substring(0, sepIdx).trim();
-            const idsStr = accumulated
-              .substring(sepIdx + 4)
-              .replace(/^[\s\n-]+/, "")
-              .trim();
-            placeIds = idsStr
-              .split(/[,\s]+/)
-              .map((s) => s.trim())
-              .filter((id) => id && id !== "none" && validIds.has(id));
-          } else {
-            displayText = accumulated.trim();
-            placeIds = [];
-          }
-
-          controller.enqueue(
-            encoder.encode(
-              JSON.stringify({ t: "done", text: displayText, ids: placeIds }) +
-                "\n",
-            ),
-          );
         } catch (err) {
           console.error("Stream error:", err);
           controller.enqueue(

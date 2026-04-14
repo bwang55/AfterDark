@@ -1304,6 +1304,7 @@ const MapCanvasInner = function MapCanvas({
       />
       <div
         aria-hidden
+        suppressHydrationWarning
         data-theme-overlay
         className="pointer-events-none absolute inset-0"
         style={{
@@ -1316,6 +1317,7 @@ const MapCanvasInner = function MapCanvas({
       />
       <div
         aria-hidden
+        suppressHydrationWarning
         data-theme-overlay
         className="pointer-events-none absolute inset-0"
         style={{
@@ -1328,6 +1330,7 @@ const MapCanvasInner = function MapCanvas({
       />
       <div
         aria-hidden
+        suppressHydrationWarning
         data-theme-overlay
         className="pointer-events-none absolute inset-0"
         style={{

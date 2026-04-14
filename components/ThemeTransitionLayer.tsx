@@ -61,6 +61,7 @@ function ThemeTransitionLayerInner({
   return (
     <div
       aria-hidden
+      suppressHydrationWarning
       data-theme-overlay
       className="pointer-events-none absolute inset-0 z-10"
       style={{

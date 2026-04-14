@@ -15,8 +15,8 @@
 │  └──────────────┘      └───────────────────────────┘    │
 │                                                         │
 │  ┌──────────────────┐                                   │
-│  │  S3 + CloudFront │  ← (not yet provisioned)          │
-│  │  Static frontend │                                   │
+│  │  AWS Amplify      │  ← git push 自动构建 + CDN 部署  │
+│  │  Static frontend  │                                   │
 │  └──────────────────┘                                   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -26,7 +26,7 @@ The app has two deployable parts:
 | Component | What it does | AWS Service | Status |
 |-----------|-------------|-------------|--------|
 | **Backend API** | Serves place data (seed + Mapbox live POI) | Lambda + API Gateway | ✅ CDK ready |
-| **Frontend** | Next.js static export (SPA) | S3 + CloudFront | ⬜ Manual / TBD |
+| **Frontend** | Next.js static export (SPA) | AWS Amplify Hosting | ✅ amplify.yml ready |
 
 ---
 
@@ -58,7 +58,7 @@ A single Lambda function behind API Gateway that:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ALLOW_ORIGIN` | No | CORS origin header. Defaults to `*`. Set to your frontend domain in production. |
+| `ALLOW_ORIGIN` | No | CORS origin header. Defaults to `*`. Set to your Amplify domain in production. |
 | `MAPBOX_ACCESS_TOKEN` | Yes (for live POI) | Mapbox API token. Without it, only seed data is returned. |
 
 ### Infrastructure (CDK)
@@ -71,31 +71,37 @@ Defined in `infra/lib/afterdark-stack.ts`:
 
 ---
 
-## Part 2 — Frontend (Static Export)
+## Part 2 — Frontend (AWS Amplify Hosting)
 
 ### What it does
 
-A Next.js app that renders a cinematic, time-aware map UI. It can be exported as a fully static site (HTML + JS + CSS) with no server-side rendering required.
+A Next.js app that renders a cinematic, time-aware map UI. It is exported as a fully static site (HTML + JS + CSS) and deployed via AWS Amplify Hosting.
 
-**Key files:**
-- `app/page.tsx` — Main page (client component)
-- `app/layout.tsx` — Root layout
-- `components/` — UI components (MapCanvas, PlaceCard, TimeSlider, etc.)
-- `lib/api.ts` — API client that calls the backend
+### How it works
+
+Amplify Hosting connects to the Git repo and auto-deploys on every push to `main`. The build process is defined in `amplify.yml`:
+
+1. `npm ci` — install dependencies
+2. `npm run build:static` — static export to `out/`
+3. Amplify serves `out/` via its built-in CDN (CloudFront)
 
 ### How the frontend connects to the backend
 
 `lib/api.ts` reads `NEXT_PUBLIC_PLACES_API_URL` at build time. If set, it fetches from the API Gateway endpoint. If unset, it falls back to the built-in seed data (offline mode).
 
-### Hosting options
+### Amplify environment variables
 
-The simplest approach is **S3 + CloudFront**:
+Set these in Amplify Console → App settings → Environment variables:
 
-1. Build the static export: `npm run build:static` → outputs to `out/`
-2. Upload `out/` to an S3 bucket
-3. Serve via CloudFront for HTTPS + CDN caching
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` | Yes | Mapbox public token for the map |
+| `NEXT_PUBLIC_PLACES_API_URL` | No | API Gateway endpoint from CDK output. Omit for offline mode. |
+| `NEXT_OUTPUT_MODE` | Auto | Set to `export` by `build:static` script — no manual config needed |
 
-This is not yet automated in the CDK stack.
+### Custom domain
+
+Amplify Console → Domain management → Add custom domain. Amplify handles SSL certificate provisioning and DNS validation automatically.
 
 ---
 
@@ -125,7 +131,7 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-east-1
 
 ```bash
 export MAPBOX_ACCESS_TOKEN="pk.your_mapbox_token_here"
-export ALLOW_ORIGIN="*"                # lock down to your domain later
+export ALLOW_ORIGIN="*"                # lock down to your Amplify domain later
 
 npm run cdk:deploy
 ```
@@ -143,20 +149,25 @@ AfterDarkStack.PlacesApiEndpoint = https://abc123.execute-api.us-east-1.amazonaw
 curl "https://abc123.execute-api.us-east-1.amazonaws.com/prod/places?time=22&limit=5"
 ```
 
-### Step 5 — Build and deploy the frontend
+### Step 5 — Set up Amplify Hosting (first time only)
+
+1. Open AWS Amplify Console
+2. **New app** → **Host web app** → connect your Git repo
+3. Amplify auto-detects `amplify.yml` — no build settings to configure
+4. Add environment variables:
+   - `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` = your Mapbox token
+   - `NEXT_PUBLIC_PLACES_API_URL` = the endpoint from Step 3
+5. Save and deploy
+
+After initial setup, every `git push` to `main` triggers an automatic build and deploy.
+
+### Step 6 — Lock down CORS
+
+Once Amplify assigns a domain (e.g. `https://main.d1abc2def3.amplifyapp.com`), update the backend:
 
 ```bash
-# Set the API URL from Step 3
-export NEXT_PUBLIC_PLACES_API_URL="https://abc123.execute-api.us-east-1.amazonaws.com/prod/places"
-
-# Build static export
-npm run build:static
-
-# Upload to S3 (create bucket first if needed)
-aws s3 sync out/ s3://YOUR_BUCKET_NAME --delete
-
-# Optionally invalidate CloudFront cache
-aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
+export ALLOW_ORIGIN="https://main.d1abc2def3.amplifyapp.com"
+npm run cdk:deploy
 ```
 
 ---
@@ -180,6 +191,5 @@ With low traffic (< 1M requests/month):
 |---------|---------------|
 | Lambda | Free tier (1M requests/month free) |
 | API Gateway | ~$3.50 per million requests |
-| S3 | < $1/month |
-| CloudFront | Free tier (1 TB/month) |
+| Amplify Hosting | Free tier (1000 build min/month, 15 GB served/month) |
 | **Total** | **< $5/month** for light usage |

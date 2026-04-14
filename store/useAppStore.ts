@@ -2,6 +2,18 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MOCK_PLACES, isPlaceOpen } from "@/data/mockPlaces";
 import type { PlaceCategory } from "@/data/mockPlaces";
+import { resolveThemeByHour } from "@/shared/time-theme";
+
+const GREETINGS: Record<string, string> = {
+  morning:
+    "Good morning! The city's waking up — perfect time for a quiet coffee or brunch spot. What are you in the mood for?",
+  afternoon:
+    "Hey there! Afternoon sun is warm — great time to explore. Looking for food, a chill hangout, or something specific?",
+  dusk:
+    "Evening's rolling in and the city's starting to glow. Got plans tonight? Tell me what you're feeling and I'll find you the perfect spot.",
+  night:
+    "Late night, huh? Whether you're winding down or just getting started — tell me how you're feeling, I'll show you what's still open.",
+};
 
 function currentHourValue(): number {
   const now = new Date();
@@ -148,7 +160,21 @@ export const useAppStore = create<AppStore>()(
       toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
 
       // ── AI Chat ──
-      openAiChat: () => set({ aiChatOpen: true }),
+      openAiChat: () => {
+        const s = get();
+        if (s.aiChatMessages.length === 0) {
+          const hour = ((s.timeValue % 24) + 24) % 24;
+          const theme = resolveThemeByHour(hour);
+          set({
+            aiChatOpen: true,
+            aiChatMessages: [
+              { role: "assistant" as const, text: GREETINGS[theme] ?? GREETINGS.night, placeIds: [] },
+            ],
+          });
+        } else {
+          set({ aiChatOpen: true });
+        }
+      },
 
       setAiChatMessage: (msg) => set({ aiChatMessage: msg }),
 
@@ -230,6 +256,30 @@ export const useAppStore = create<AppStore>()(
                         msgs[msgs.length - 1] = last;
                         return { aiChatMessages: msgs, aiChatStreaming: false };
                       });
+                      // Execute AI tool actions on the map
+                      if (Array.isArray(data.actions)) {
+                        for (const action of data.actions) {
+                          try {
+                            switch (action.type) {
+                              case "navigate_to_place":
+                                if (typeof action.placeId === "string")
+                                  get().setSelectedPlaceId(action.placeId);
+                                break;
+                              case "set_time":
+                                if (typeof action.hour === "number")
+                                  get().setTimeValue(action.hour);
+                                break;
+                              case "filter_category":
+                                get().setSelectedCategory(action.category ?? null);
+                                break;
+                              case "show_open_now":
+                                if (typeof action.enabled === "boolean" && action.enabled !== get().filterOpenNow)
+                                  get().toggleFilterOpenNow();
+                                break;
+                            }
+                          } catch { /* action failed, non-critical */ }
+                        }
+                      }
                     } else if (data.t === "error") {
                       throw new Error("stream error");
                     }
