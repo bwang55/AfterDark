@@ -86,7 +86,7 @@ export default function HomePage() {
   const handleRecenter = useCallback(() => {
     setSelectedPlaceId(null);
     setRecenterCount((c) => c + 1);
-  }, [userLocation, setSelectedPlaceId]);
+  }, [setSelectedPlaceId]);
 
   const handleDeselect = useCallback(
     () => setSelectedPlaceId(null),

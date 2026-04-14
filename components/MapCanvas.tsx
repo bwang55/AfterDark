@@ -17,9 +17,9 @@ import {
   PLACE_SOURCE_ID,
   placesToGeoJson,
 } from "@/lib/map";
-import { interpolateThemeVisual, resolveThemeByHour, TIME_THEME_META } from "@/shared/time-theme";
+import { interpolateThemeVisual } from "@/shared/time-theme";
 import type { RankedPlace, TimeTheme } from "@/shared/types";
-import { clamp, hexToRgb, lerp, mixHex } from "@/shared/utils";
+import { clamp, lerp, mixHex } from "@/shared/utils";
 import { useAppStore } from "@/store/useAppStore";
 
 interface MapCanvasProps {
@@ -250,7 +250,7 @@ function applyTheme(map: Map, timeValue: number): void {
   // Error Boundary remount, synchronous re-entrancy from style.load handlers).
   const desiredPreset = resolveLightPreset(timeValue);
   try {
-    const currentPreset = (map as any).getConfigProperty("basemap", "lightPreset");
+    const currentPreset = map.getConfigProperty("basemap", "lightPreset");
     if (currentPreset !== desiredPreset) {
       map.setConfigProperty("basemap", "lightPreset", desiredPreset);
     }
@@ -353,7 +353,6 @@ const MapCanvasInner = function MapCanvas({
   viewportKey,
   onSelectPlace,
   onDeselectPlace,
-  onRecenter,
   onViewportChange,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -373,7 +372,7 @@ const MapCanvasInner = function MapCanvas({
   const onDeselectPlaceRef = useRef(onDeselectPlace);
   const [mapEnabled, setMapEnabled] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [mapLayers, setMapLayers] = useState({
+  const [mapLayers] = useState({
     roadLabels: true,
     placeLabels: true,
     poiLabels: false,

@@ -4,7 +4,7 @@ import { memo } from "react";
 import clsx from "clsx";
 
 import type { RankedPlace } from "@/shared/types";
-import { clamp, mixHex, rgbaFromHex } from "@/shared/utils";
+import { clamp, mixHex } from "@/shared/utils";
 
 interface PlaceCardProps {
   place: RankedPlace;

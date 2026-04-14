@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { interpolateThemeVisual } from "@/shared/time-theme";
-import { clamp, hexToRgb, lerp, mixHex } from "@/shared/utils";
+import { clamp, lerp, mixHex } from "@/shared/utils";
 
 interface ThemeTransitionLayerProps {
   timeValue: number;

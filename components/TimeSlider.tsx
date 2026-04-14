@@ -21,10 +21,7 @@ export function TimeSlider({
   timeValue,
   onChange,
   glowColor,
-  theme,
 }: TimeSliderProps) {
-  const primaryText = "rgba(226,232,240,0.94)";
-  const mutedText = "rgba(226,232,240,0.68)";
   const progress = Math.min(
     100,
     Math.max(0, ((timeValue - TIME_RANGE_START) / (TIME_RANGE_END - TIME_RANGE_START)) * 100),
