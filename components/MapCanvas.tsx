@@ -131,12 +131,14 @@ function ensurePlaceLayers(map: Map): void {
       id: PLACE_PULSE_LAYER_ID,
       type: "circle",
       source: PLACE_SOURCE_ID,
+      layout: { "circle-sort-key": 0 },
       paint: {
         "circle-radius": pulseRadiusExpression(0.8),
         "circle-color": "#A5F3FC",
         "circle-opacity": pulseOpacityExpression(0.2),
         "circle-blur": 0.86,
         "circle-emissive-strength": 1,
+        "circle-pitch-alignment": "map",
         "circle-radius-transition": { duration: 260, delay: 0 },
         "circle-opacity-transition": { duration: 260, delay: 0 },
       },
@@ -148,6 +150,7 @@ function ensurePlaceLayers(map: Map): void {
       id: PLACE_GLOW_LAYER_ID,
       type: "circle",
       source: PLACE_SOURCE_ID,
+      layout: { "circle-sort-key": 0 },
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 7.8, 14, 17.5],
         "circle-color": "#22D3EE",
@@ -155,6 +158,7 @@ function ensurePlaceLayers(map: Map): void {
         "circle-opacity": ["max", 0.38, ["*", 0.55, ["coalesce", ["get", "visibility"], 0.8]]],
         "circle-blur": 0.9,
         "circle-emissive-strength": 1,
+        "circle-pitch-alignment": "map",
         "circle-opacity-transition": { duration: 360, delay: 0 },
         "circle-color-transition": { duration: 380, delay: 0 },
       },
@@ -166,6 +170,7 @@ function ensurePlaceLayers(map: Map): void {
       id: PLACE_LAYER_ID,
       type: "circle",
       source: PLACE_SOURCE_ID,
+      layout: { "circle-sort-key": 0 },
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 3.6, 14, 6.2],
         "circle-color": "#22D3EE",
@@ -179,6 +184,7 @@ function ensurePlaceLayers(map: Map): void {
         // Minimum 0.68 — closed places are still clearly visible dots
         "circle-opacity": ["max", 0.68, ["coalesce", ["get", "visibility"], 0.8]],
         "circle-emissive-strength": 1,
+        "circle-pitch-alignment": "map",
         "circle-opacity-transition": { duration: 360, delay: 0 },
         "circle-color-transition": { duration: 380, delay: 0 },
         "circle-stroke-opacity-transition": { duration: 360, delay: 0 },
@@ -191,12 +197,14 @@ function ensurePlaceLayers(map: Map): void {
       id: PLACE_ACTIVE_LAYER_ID,
       type: "circle",
       source: PLACE_SOURCE_ID,
+      layout: { "circle-sort-key": 0 },
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 8, 14, 16],
         "circle-color": "#8B5CF6",
         "circle-blur": 0.7,
         "circle-opacity": 0.36,
         "circle-emissive-strength": 1,
+        "circle-pitch-alignment": "map",
         "circle-opacity-transition": { duration: 220, delay: 0 },
       },
       filter: ["==", ["get", "id"], "__none__"],
@@ -542,6 +550,19 @@ const MapCanvasInner = function MapCanvas({
       ensurePlaceLayers(map);
       ensureUserLocationLayers(map);
 
+      // Restore 3D terrain (lost on style.load)
+      if (!map.getSource("mapbox-dem")) {
+        try {
+          map.addSource("mapbox-dem", {
+            type: "raster-dem",
+            url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+            tileSize: 512,
+            maxzoom: 14,
+          });
+          map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
+        } catch { /* noop */ }
+      }
+
       const source = map.getSource(PLACE_SOURCE_ID) as GeoJSONSource | undefined;
       if (source) {
         source.setData(placesToGeoJson(placesRef.current));
@@ -567,6 +588,15 @@ const MapCanvasInner = function MapCanvas({
         map.setConfigProperty("basemap", "showRoadLabels", true);
         map.setConfigProperty("basemap", "showPlaceLabels", true);
         map.setConfigProperty("basemap", "show3dObjects", true);
+
+        // 3D terrain — makes hills/mountains visible (e.g. SF, downtown valleys)
+        map.addSource("mapbox-dem", {
+          type: "raster-dem",
+          url: "mapbox://mapbox.mapbox-terrain-dem-v1",
+          tileSize: 512,
+          maxzoom: 14,
+        });
+        map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
       } catch { /* noop */ }
       syncCustomLayers();
       setMapLoaded(true);
