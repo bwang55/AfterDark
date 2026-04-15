@@ -482,7 +482,9 @@ export const useAppStore = create<AppStore>()(
         mapPitch: s.mapPitch,
         walkingCircles: s.walkingCircles,
         viewMode: s.viewMode,
-        timeValue: s.timeValue,
+        // timeValue is NOT persisted — the app boots in `nowLocked: true`
+        // (see initial state), which would overwrite any stored value within
+        // a second anyway. Keeping it out avoids a flash of stale time on load.
         aiChatSessionId: s.aiChatSessionId,
       }),
     },
