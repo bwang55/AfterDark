@@ -13,33 +13,35 @@ import type { Place, RankedPlace } from "@/shared/types";
 const HAS_API = !!process.env.NEXT_PUBLIC_PLACES_API_URL;
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
-/** Search radius in km from PROVIDENCE_CENTER. Keeps the map scoped to downtown. */
+/** Search radius in km from the user's current center. */
 const SEARCH_RADIUS_KM = 2;
 
-function withinRadius(lng: number, lat: number): boolean {
-  return (
-    haversineKm(PROVIDENCE_CENTER.lat, PROVIDENCE_CENTER.lng, lat, lng) <=
-    SEARCH_RADIUS_KM
-  );
+/** Bbox inflate factor — Mapbox returns edge candidates; we re-filter via `withinRadius`. */
+const BBOX_INFLATE = 1.25;
+
+function withinRadius(
+  centerLng: number,
+  centerLat: number,
+  lng: number,
+  lat: number,
+): boolean {
+  return haversineKm(centerLat, centerLng, lat, lng) <= SEARCH_RADIUS_KM;
 }
 
 /**
- * Bbox enclosing the search circle, sent to the backend / Mapbox so discovery
- * returns candidates covering the full radius. Slightly inflated (1.25×) so
- * Mapbox returns candidates near the edge; the client re-filters via
- * `withinRadius`.
+ * Bbox enclosing the search circle. Recomputed whenever the user center moves
+ * (after geolocation resolves, or if we ever allow manual recentering).
  */
-const BBOX_INFLATE = 1.25;
-const LAT_DELTA = (SEARCH_RADIUS_KM * BBOX_INFLATE) / 111;
-const LNG_DELTA =
-  (SEARCH_RADIUS_KM * BBOX_INFLATE) /
-  (111 * Math.cos((PROVIDENCE_CENTER.lat * Math.PI) / 180));
-const SEARCH_BBOX: [number, number, number, number] = [
-  PROVIDENCE_CENTER.lng - LNG_DELTA,
-  PROVIDENCE_CENTER.lat - LAT_DELTA,
-  PROVIDENCE_CENTER.lng + LNG_DELTA,
-  PROVIDENCE_CENTER.lat + LAT_DELTA,
-];
+function bboxAround(
+  lng: number,
+  lat: number,
+): [number, number, number, number] {
+  const latDelta = (SEARCH_RADIUS_KM * BBOX_INFLATE) / 111;
+  const lngDelta =
+    (SEARCH_RADIUS_KM * BBOX_INFLATE) /
+    (111 * Math.cos((lat * Math.PI) / 180));
+  return [lng - lngDelta, lat - latDelta, lng + lngDelta, lat + latDelta];
+}
 
 // ── Hook ────────────────────────────────────────────────────────────────
 
@@ -62,15 +64,23 @@ export function usePlaces(): RankedPlace[] {
   const query = useAppStore((s) => s.query);
   const filterTags = useAppStore((s) => s.filterTags);
   const selectedCategory = useAppStore((s) => s.selectedCategory);
+  const userLocation = useAppStore((s) => s.userLocation);
 
   const hour = ((timeValue % 24) + 24) % 24;
+
+  // Resolve search center from user location. While `userLocation` is null we
+  // hold off all network calls — avoids a wasted Providence-centered fetch
+  // that would then be discarded once geolocation resolves.
+  const ready = userLocation !== null;
+  const centerLng = userLocation?.lng ?? PROVIDENCE_CENTER.lng;
+  const centerLat = userLocation?.lat ?? PROVIDENCE_CENTER.lat;
 
   // ── API mode: fetch from backend ──
   const [apiPlaces, setApiPlaces] = useState<RankedPlace[]>([]);
   const apiFetchId = useRef(0);
 
   useEffect(() => {
-    if (!HAS_API) return;
+    if (!HAS_API || !ready) return;
 
     const id = ++apiFetchId.current;
     const controller = new AbortController();
@@ -79,9 +89,9 @@ export function usePlaces(): RankedPlace[] {
       hour,
       tags: filterTags,
       query: query || undefined,
-      lng: PROVIDENCE_CENTER.lng,
-      lat: PROVIDENCE_CENTER.lat,
-      bbox: SEARCH_BBOX,
+      lng: centerLng,
+      lat: centerLat,
+      bbox: bboxAround(centerLng, centerLat),
       limit: 80,
       signal: controller.signal,
     })
@@ -93,28 +103,26 @@ export function usePlaces(): RankedPlace[] {
       });
 
     return () => controller.abort();
-  }, [hour, query, filterTags]);
+  }, [hour, query, filterTags, ready, centerLng, centerLat]);
 
   // ── Direct Mapbox mode: client-side discovery when no backend ──
   //
-  // Fires ONCE per mount. Since the bbox is fixed (2.5km around Providence)
-  // and we fetch the full base set (cafe/restaurant/bar), there's no need
-  // to re-fetch when hour/query/tags change — they're all handled client-side
-  // by `localPlaces` below. This keeps Mapbox API calls to 3 per mount
-  // (one per term), dedup'd and cached further in lib/discovery.ts.
+  // Fires once the user's location is resolved, and again if the center
+  // moves (e.g. re-permission). Hour/query/tags are still client-side filters
+  // over the pulled base set — no re-fetch needed for those.
   const [mapboxPlaces, setMapboxPlaces] = useState<Place[]>([]);
 
   useEffect(() => {
-    if (HAS_API || !MAPBOX_TOKEN) return;
+    if (HAS_API || !MAPBOX_TOKEN || !ready) return;
 
     const controller = new AbortController();
 
     discoverPlaces({
       accessToken: MAPBOX_TOKEN,
       hour: 12, // arbitrary — not used in cache key, local rankPlaces will re-rank
-      bbox: SEARCH_BBOX,
+      bbox: bboxAround(centerLng, centerLat),
       limit: 80,
-      proximity: { lng: PROVIDENCE_CENTER.lng, lat: PROVIDENCE_CENTER.lat },
+      proximity: { lng: centerLng, lat: centerLat },
       // Intentionally NO query — query is a client-side filter on the pulled set.
       signal: controller.signal,
     })
@@ -124,14 +132,15 @@ export function usePlaces(): RankedPlace[] {
       });
 
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ready, centerLng, centerLat]);
 
   // ── Local ranking: merge (seed + mapbox) or just seed ──
   const localPlaces = useMemo(() => {
     if (HAS_API) return [];
 
-    // Merge Providence seeds with any mapbox-discovered places, deduped by id.
+    // Merge seed places with any mapbox-discovered places, deduped by id.
+    // SEED_PLACES cover multiple cities — the radius filter below keeps only
+    // those actually near the user's center.
     const merged = new Map<string, Place>();
     for (const p of SEED_PLACES) merged.set(p.id, p);
     for (const p of mapboxPlaces) merged.set(p.id, p);
@@ -145,19 +154,20 @@ export function usePlaces(): RankedPlace[] {
       hour,
       tags: filterTags,
       limit: 80,
-      lng: PROVIDENCE_CENTER.lng,
-      lat: PROVIDENCE_CENTER.lat,
-      bbox: SEARCH_BBOX,
+      lng: centerLng,
+      lat: centerLat,
+      bbox: bboxAround(centerLng, centerLat),
     });
-  }, [hour, query, filterTags, mapboxPlaces]);
+  }, [hour, query, filterTags, mapboxPlaces, centerLng, centerLat]);
 
   // ── Unified post-filter: 2km radius + category ──
   const base = HAS_API ? apiPlaces : localPlaces;
   return useMemo(() => {
     return base.filter((p) => {
-      if (!withinRadius(p.coordinates.lng, p.coordinates.lat)) return false;
+      if (!withinRadius(centerLng, centerLat, p.coordinates.lng, p.coordinates.lat))
+        return false;
       if (selectedCategory && p.category !== selectedCategory) return false;
       return true;
     });
-  }, [base, selectedCategory]);
+  }, [base, selectedCategory, centerLng, centerLat]);
 }

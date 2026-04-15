@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MapCanvas } from "@/components/MapCanvas";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
@@ -30,6 +30,9 @@ export default function HomePage() {
   const hoveredPlaceId = useAppStore((s) => s.hoveredPlaceId);
   const setSelectedPlaceId = useAppStore((s) => s.setSelectedPlaceId);
   const setKnownPlaces = useAppStore((s) => s.setKnownPlaces);
+  const userLocation = useAppStore((s) => s.userLocation);
+  const setUserLocation = useAppStore((s) => s.setUserLocation);
+  const setLocationStatus = useAppStore((s) => s.setLocationStatus);
 
   const { urlCenter, handleViewportChange } = useURLSync();
 
@@ -45,28 +48,37 @@ export default function HomePage() {
   }, [places, setKnownPlaces]);
 
   // ── Map-specific state ──
-  const [userLocation, setUserLocation] = useState<{
-    lng: number;
-    lat: number;
-  } | null>(null);
   const [recenterCount, setRecenterCount] = useState(0);
 
-  // Resolve initial user location (fallback to Providence)
+  // Resolve initial user location (fallback to Providence).
+  // Stored in the Zustand store so `usePlaces()` can center POI search
+  // on the real user — not hardcoded Providence.
+  const locationResolved = useRef(false);
   useEffect(() => {
+    if (locationResolved.current) return;
+    locationResolved.current = true;
+
     if (!navigator.geolocation) {
+      setLocationStatus("unavailable");
       setUserLocation(PROVIDENCE_CENTER);
       return;
     }
+    setLocationStatus("requesting");
     navigator.geolocation.getCurrentPosition(
-      (pos) =>
+      (pos) => {
+        setLocationStatus("granted");
         setUserLocation({
           lng: pos.coords.longitude,
           lat: pos.coords.latitude,
-        }),
-      () => setUserLocation(PROVIDENCE_CENTER),
+        });
+      },
+      () => {
+        setLocationStatus("denied");
+        setUserLocation(PROVIDENCE_CENTER);
+      },
       { timeout: 8000, maximumAge: 300000 },
     );
-  }, []);
+  }, [setUserLocation, setLocationStatus]);
 
   // ── Derived props for MapCanvas ──
   // Look up from the current places list so the camera flies to a valid spot

@@ -50,6 +50,15 @@ interface AppState {
   // ── Places (shared across components) ──
   knownPlaces: RankedPlace[];
 
+  // ── User geolocation (resolved at app mount, not persisted) ──
+  userLocation: { lng: number; lat: number } | null;
+  locationStatus:
+    | "idle"
+    | "requesting"
+    | "granted"
+    | "denied"
+    | "unavailable";
+
   // ── Filters ──
   filterOpenNow: boolean;
   filterTags: PlaceTag[];
@@ -89,6 +98,9 @@ interface AppActions {
   hydrateAiChatHistory: () => Promise<void>;
 
   setKnownPlaces: (places: RankedPlace[]) => void;
+
+  setUserLocation: (loc: { lng: number; lat: number } | null) => void;
+  setLocationStatus: (status: AppState["locationStatus"]) => void;
 
   toggleFilterOpenNow: () => void;
   toggleFilterTag: (tag: PlaceTag) => void;
@@ -132,6 +144,9 @@ export const useAppStore = create<AppStore>()(
       aiChatSessionId: "",
 
       knownPlaces: [],
+
+      userLocation: null,
+      locationStatus: "idle",
 
       filterOpenNow: false,
       filterTags: [],
@@ -394,6 +409,10 @@ export const useAppStore = create<AppStore>()(
 
       // ── Places ──
       setKnownPlaces: (places) => set({ knownPlaces: places }),
+
+      // ── Geolocation ──
+      setUserLocation: (loc) => set({ userLocation: loc }),
+      setLocationStatus: (status) => set({ locationStatus: status }),
 
       // ── Filters ──
       toggleFilterOpenNow: () =>
