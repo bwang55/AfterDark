@@ -283,15 +283,34 @@ export function TimeScroll() {
                 <button
                   type="button"
                   onClick={toggleNowLocked}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition ${
+                  title={
                     nowLocked
-                      ? "border-emerald-400/30 bg-emerald-400/20 text-emerald-500"
+                      ? "Live — click to unlock and scrub time"
+                      : "Click to sync to current time"
+                  }
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide transition ${
+                    nowLocked
+                      ? "border-emerald-400/40 bg-emerald-400/20 text-emerald-500 shadow-[0_0_12px_rgba(52,211,153,0.18)]"
                       : isLight
-                        ? "border-sky-500/20 bg-sky-500/10 text-sky-600 hover:bg-sky-500/20"
-                        : "border-sky-400/20 bg-sky-400/10 text-sky-300 hover:bg-sky-400/20"
+                        ? "border-sky-500/30 bg-sky-500/10 text-sky-600 hover:border-sky-500/60 hover:bg-sky-500/20 hover:shadow-[0_0_10px_rgba(14,165,233,0.25)]"
+                        : "border-sky-400/30 bg-sky-400/10 text-sky-300 hover:border-sky-400/60 hover:bg-sky-400/20 hover:shadow-[0_0_10px_rgba(56,189,248,0.25)]"
                   }`}
                 >
-                  NOW
+                  <span className="relative flex h-1.5 w-1.5">
+                    {nowLocked && (
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    )}
+                    <span
+                      className={`relative inline-flex h-1.5 w-1.5 rounded-full ${
+                        nowLocked
+                          ? "bg-emerald-500"
+                          : isLight
+                            ? "bg-sky-500"
+                            : "bg-sky-400"
+                      }`}
+                    />
+                  </span>
+                  <span>{nowLocked ? "LIVE" : "NOW"}</span>
                 </button>
               </div>
 

@@ -163,7 +163,7 @@ export const useAppStore = create<AppStore>()(
       viewMode: "3d",
 
       resetNorthCount: 0,
-      nowLocked: false,
+      nowLocked: true,
 
       query: "",
       selectedPlaceId: null,

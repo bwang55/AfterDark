@@ -30,7 +30,7 @@ export function SearchBox() {
   }, []);
 
   return (
-    <div className="pointer-events-auto w-[280px]">
+    <div className="pointer-events-auto w-[340px] max-w-[calc(100vw-2rem)]">
       <div
         className={`flex items-center gap-2 rounded-full border px-4 py-2.5 shadow-lg backdrop-blur-xl transition-colors duration-500 ${
           isLight
@@ -53,7 +53,7 @@ export function SearchBox() {
               e.currentTarget.blur();
             }
           }}
-          placeholder="Search city or place…"
+          placeholder="Search nearby places…"
           className={`min-w-0 flex-1 bg-transparent text-sm outline-none ${
             isLight
               ? "text-slate-800 placeholder-slate-400"

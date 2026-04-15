@@ -187,7 +187,7 @@ export function AIChatPill() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.25, ease: [0.22, 0.68, 0, 1] }}
-            className="relative mb-2 w-[480px]"
+            className="relative mb-2 w-[min(480px,calc(100vw-2rem))]"
           >
             {/* Collapse — floating pill at top */}
             <div className="pointer-events-auto mb-1.5 flex justify-center">
@@ -241,12 +241,11 @@ export function AIChatPill() {
       {/* ── Input pill ── */}
       <motion.div
         layout
-        className={`relative flex items-center overflow-hidden rounded-full border shadow-xl backdrop-blur-xl transition-colors duration-500 ${
+        className={`relative flex h-14 w-[min(480px,calc(100vw-2rem))] items-center overflow-hidden rounded-full border shadow-xl backdrop-blur-xl transition-colors duration-500 ${
           isLight
             ? "border-black/[0.06] bg-white/70"
             : "border-white/10 bg-slate-900/60"
         }`}
-        style={{ width: 480, height: 56 }}
         transition={{ duration: 0.25, ease: [0.22, 0.68, 0, 1] }}
       >
         {/* Icon */}

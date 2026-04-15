@@ -15,6 +15,17 @@ const DEBOUNCE_MS = 400;
  * - On popstate: re-read URL → store
  */
 export function useURLSync() {
+  // Initial center from URL `?lat=&lng=&z=` params — set ONCE on mount and
+  // never updated afterwards. Used by page.tsx to honor deep-links on the
+  // first paint. Separating this from `mapCenterRef` prevents the first
+  // camera `moveend` (which fires after the initial flyTo to Providence)
+  // from polluting `urlCenter` and blocking the user-location auto-fly.
+  const initialUrlCenterRef = useRef<
+    { lat: number; lng: number; zoom: number } | null
+  >(null);
+
+  // Current camera center — updated on every `moveend` via
+  // `handleViewportChange`. Used only when serializing state back to the URL.
   const mapCenterRef = useRef<{ lat: number; lng: number; zoom: number } | null>(
     null,
   );
@@ -54,11 +65,16 @@ export function useURLSync() {
     const lng = sp.get("lng");
     const z = sp.get("z");
     if (lat !== null && lng !== null) {
-      mapCenterRef.current = {
+      const parsed = {
         lat: parseFloat(lat),
         lng: parseFloat(lng),
         zoom: z ? parseFloat(z) : 14,
       };
+      // First apply only: seed the initial URL center. Later popstate events
+      // also call this, but we deliberately don't overwrite — the map's
+      // current view should win unless the user explicitly recenters.
+      if (!initialUrlCenterRef.current) initialUrlCenterRef.current = parsed;
+      mapCenterRef.current = parsed;
     }
   };
 
@@ -144,8 +160,9 @@ export function useURLSync() {
   };
 
   return {
-    /** Initial map center from URL, or null if not in URL. */
-    urlCenter: mapCenterRef.current,
+    /** Initial map center from URL deep-link, or null if none. Stable across
+     *  renders — does NOT track subsequent camera moves. */
+    urlCenter: initialUrlCenterRef.current,
     /** Pass to MapCanvas onViewportChange. */
     handleViewportChange,
   };
