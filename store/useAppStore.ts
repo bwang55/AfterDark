@@ -79,6 +79,9 @@ interface AppState {
   resetNorthCount: number;
   nowLocked: boolean;
 
+  // ── Cinema / Immersive mode (not persisted) ──
+  cinemaMode: boolean;
+
   // ── Selection ──
   query: string;
   selectedPlaceId: string | null;
@@ -124,6 +127,10 @@ interface AppActions {
   setSelectedPlaceId: (id: string | null) => void;
   setHoveredPlaceId: (id: string | null) => void;
   resetArea: () => void;
+
+  enterCinemaMode: () => void;
+  exitCinemaMode: () => void;
+  toggleCinemaMode: () => void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -164,6 +171,8 @@ export const useAppStore = create<AppStore>()(
 
       resetNorthCount: 0,
       nowLocked: true,
+
+      cinemaMode: false,
 
       query: "",
       selectedPlaceId: null,
@@ -468,6 +477,10 @@ export const useAppStore = create<AppStore>()(
           filterTags: [],
           selectedCategory: null,
         }),
+
+      enterCinemaMode: () => set({ cinemaMode: true }),
+      exitCinemaMode: () => set({ cinemaMode: false }),
+      toggleCinemaMode: () => set((s) => ({ cinemaMode: !s.cinemaMode })),
     }),
     {
       name: "afterdark-ui",

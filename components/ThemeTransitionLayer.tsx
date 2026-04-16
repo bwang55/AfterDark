@@ -74,6 +74,7 @@ function ThemeTransitionLayerInner({
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(255,255,255,0.18)_0%,rgba(255,255,255,0)_42%)]" />
       <div
+        suppressHydrationWarning
         data-theme-overlay
         className="absolute inset-0"
         style={{
@@ -85,6 +86,7 @@ function ThemeTransitionLayerInner({
         }}
       />
       <div
+        suppressHydrationWarning
         data-theme-overlay
         className="absolute inset-0"
         style={{

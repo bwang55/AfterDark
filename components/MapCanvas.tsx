@@ -560,6 +560,36 @@ const MapCanvasInner = function MapCanvas({
   const setStoreMapPitch = useAppStore((s) => s.setMapPitch);
   const storeWalkingCircles = useAppStore((s) => s.walkingCircles);
   const storeViewMode = useAppStore((s) => s.viewMode);
+  const storeCinemaMode = useAppStore((s) => s.cinemaMode);
+
+  // ── Cinema (immersive) mode orbit — separate from selection orbit ──
+  const cinemaOrbitFrameRef = useRef<number | null>(null);
+  const cinemaOrbitActiveRef = useRef(false);
+
+  const stopCinemaOrbit = useCallback(() => {
+    cinemaOrbitActiveRef.current = false;
+    if (cinemaOrbitFrameRef.current !== null) {
+      cancelAnimationFrame(cinemaOrbitFrameRef.current);
+      cinemaOrbitFrameRef.current = null;
+    }
+  }, []);
+
+  const startCinemaOrbit = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    cinemaOrbitActiveRef.current = true;
+    const startBearing = map.getBearing();
+    const startTime = performance.now();
+    const SPEED = 1.3; // deg/s — roughly 2.3× slower than selection orbit
+    const tick = () => {
+      const m = mapRef.current;
+      if (!cinemaOrbitActiveRef.current || !m) return;
+      const elapsed = (performance.now() - startTime) / 1000;
+      m.setBearing(startBearing - elapsed * SPEED);
+      cinemaOrbitFrameRef.current = requestAnimationFrame(tick);
+    };
+    cinemaOrbitFrameRef.current = requestAnimationFrame(tick);
+  }, []);
 
   const stopOrbit = useCallback(() => {
     orbitActiveRef.current = false;
@@ -1325,6 +1355,73 @@ const MapCanvasInner = function MapCanvas({
     applyActiveFilter(map, hoveredPlaceId, selectedPlaceId);
   }, [hoveredPlaceId, selectedPlaceId, mapLoaded]);
 
+  // Cinema / immersive mode: push the camera, start a slow orbit, and
+  // drop back out cleanly on exit. User drag/wheel halts the orbit but
+  // leaves the letterbox/mode alone.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapEnabled || !map || !mapLoaded) return;
+
+    const cancelCinemaOrbit = () => stopCinemaOrbit();
+
+    if (storeCinemaMode) {
+      stopOrbit();
+
+      const maxPitch =
+        typeof map.getMaxPitch === "function" ? map.getMaxPitch() : 78;
+      const maxZoom =
+        typeof map.getMaxZoom === "function" ? map.getMaxZoom() : 20;
+      const center = map.getCenter();
+
+      map.flyTo({
+        center: [center.lng, center.lat] as LngLatLike,
+        pitch: Math.min(58, maxPitch),
+        zoom: Math.min(16.8, maxZoom),
+        duration: 1500,
+        essential: true,
+        curve: 1.2,
+        easing: (t) => 1 - Math.pow(1 - t, 5),
+      });
+
+      const onArrival = () => {
+        if (useAppStore.getState().cinemaMode) startCinemaOrbit();
+      };
+      map.once("moveend", onArrival);
+      map.on("mousedown", cancelCinemaOrbit);
+      map.on("touchstart", cancelCinemaOrbit);
+      map.on("wheel", cancelCinemaOrbit);
+
+      return () => {
+        map.off("moveend", onArrival);
+        map.off("mousedown", cancelCinemaOrbit);
+        map.off("touchstart", cancelCinemaOrbit);
+        map.off("wheel", cancelCinemaOrbit);
+        stopCinemaOrbit();
+      };
+    }
+
+    // Exiting cinema mode — settle back to the user's stored pitch.
+    stopCinemaOrbit();
+    const center = map.getCenter();
+    map.flyTo({
+      center: [center.lng, center.lat] as LngLatLike,
+      pitch: storeMapPitch,
+      zoom: Math.min(17.2, map.getZoom()),
+      duration: 1000,
+      essential: true,
+      curve: 1,
+      easing: (t) => 1 - Math.pow(1 - t, 4),
+    });
+  }, [
+    storeCinemaMode,
+    mapEnabled,
+    mapLoaded,
+    stopOrbit,
+    startCinemaOrbit,
+    stopCinemaOrbit,
+    storeMapPitch,
+  ]);
+
   // FlyTo / fitBounds — camera-only, no style dependency needed.
   // Removed isStyleLoaded() guard because setConfigProperty during
   // map.once('load') triggers a style reload, causing isStyleLoaded()
@@ -1336,6 +1433,11 @@ const MapCanvasInner = function MapCanvas({
     }
 
     if (lastViewportKeyRef.current === viewportKey) {
+      return;
+    }
+    // Do not override the camera while cinema mode holds the stage.
+    if (useAppStore.getState().cinemaMode) {
+      lastViewportKeyRef.current = viewportKey;
       return;
     }
     lastViewportKeyRef.current = viewportKey;

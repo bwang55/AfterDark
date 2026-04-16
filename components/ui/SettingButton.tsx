@@ -4,6 +4,7 @@ import { Settings, Moon, Volume2, Info } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import { useThemeMode } from "@/hooks/useThemeMode";
+import { HoverLabel } from "@/components/ui/HoverLabel";
 
 export function SettingButton() {
   const open = useAppStore((s) => s.settingsOpen);
@@ -15,13 +16,15 @@ export function SettingButton() {
       <button
         type="button"
         onClick={toggle}
-        className={`flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-colors duration-500 ${
+        aria-label="Settings"
+        className={`group relative flex h-10 w-10 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-colors duration-500 ${
           isLight
             ? "border-black/[0.06] bg-white/70 text-slate-600 hover:text-slate-800"
             : "border-white/10 bg-slate-900/60 text-white/70 hover:text-white/90"
         }`}
       >
         <Settings className="h-4 w-4" />
+        <HoverLabel side="right">Settings</HoverLabel>
       </button>
 
       <AnimatePresence>

@@ -199,6 +199,33 @@ html {
   opacity: 0 !important;
 }
 
+/* ── Cinema / immersive mode ──
+   Hide every UI element inside the stagger layer EXCEPT anything tagged
+   [data-cinema-exit] (or its containing branches), so the toggle button
+   stays reachable. Uses :has() — modern Chrome/Safari/Firefox only. */
+body[data-cinema-mode="1"] [data-intro-stagger] > *:not(:has([data-cinema-exit])),
+body[data-cinema-mode="1"] [data-intro-stagger] > *:has([data-cinema-exit]) > *:not(:has([data-cinema-exit])):not([data-cinema-exit]),
+body[data-cinema-mode="1"] [data-intro-stagger] > * > *:has([data-cinema-exit]) > *:not([data-cinema-exit]) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(6px);
+  transition:
+    opacity 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Hide mapbox attribution controls under the letterbox. */
+body[data-cinema-mode="1"] .mapboxgl-ctrl-bottom-left,
+body[data-cinema-mode="1"] .mapboxgl-ctrl-bottom-right {
+  opacity: 0;
+  transition: opacity 400ms ease-out;
+}
+
+/* Beef up the atmosphere a touch when cinema is active. */
+body[data-cinema-mode="1"] .cinematic-grain {
+  opacity: 0.08;
+}
+
 /* ── Cinematic intro: staggered UI reveal ──
    First-visit only; driven by <CinematicIntro>. */
 @keyframes intro-fade-up {

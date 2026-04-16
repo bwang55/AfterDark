@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { AtmosphereLayer } from "@/components/AtmosphereLayer";
+import { CinemaLetterbox } from "@/components/CinemaLetterbox";
 import { CinematicIntro } from "@/components/CinematicIntro";
 import { MapCanvas } from "@/components/MapCanvas";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
@@ -16,9 +17,9 @@ import { MapControlPanel } from "@/components/ui/MapControlPanel";
 import { AIChatPill } from "@/components/ui/AIChatPill";
 import { SettingButton } from "@/components/ui/SettingButton";
 import { LocateButton } from "@/components/ui/LocateButton";
-import { ResetAreaButton } from "@/components/ui/ResetAreaButton";
 import { ViewModeButton } from "@/components/ui/ViewModeButton";
 import { CompassButton } from "@/components/ui/CompassButton";
+import { CinemaModeButton } from "@/components/ui/CinemaModeButton";
 import { ShareButton } from "@/components/ui/ShareButton";
 import { PROVIDENCE_CENTER } from "@/shared/places";
 import { useAppStore } from "@/store/useAppStore";
@@ -116,11 +117,6 @@ export default function HomePage() {
     [setSelectedPlaceId],
   );
 
-  const handleResetArea = useCallback(() => {
-    useAppStore.getState().resetArea();
-    setRecenterCount((c) => c + 1);
-  }, []);
-
   // ── Esc to close panels ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -156,6 +152,7 @@ export default function HomePage() {
       </MapErrorBoundary>
       <ThemeTransitionLayer timeValue={timeValue} />
       <AtmosphereLayer timeValue={timeValue} />
+      <CinemaLetterbox />
       <CinematicIntro />
 
       {/* ── UI Layer ── */}
@@ -201,10 +198,10 @@ export default function HomePage() {
           {/* Bottom-center: AI Chat */}
           <AIChatPill />
 
-          {/* Bottom-right: Share + Reset + Locate stack */}
+          {/* Bottom-right: Share + Cinema + Locate stack */}
           <div className="flex flex-col items-center gap-2">
             <ShareButton />
-            <ResetAreaButton onReset={handleResetArea} />
+            <CinemaModeButton />
             <LocateButton onLocate={handleRecenter} />
           </div>
         </div>
