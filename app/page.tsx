@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
+import { AtmosphereLayer } from "@/components/AtmosphereLayer";
+import { CinematicIntro } from "@/components/CinematicIntro";
 import { MapCanvas } from "@/components/MapCanvas";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { useURLSync } from "@/hooks/useURLSync";
@@ -153,11 +155,19 @@ export default function HomePage() {
         />
       </MapErrorBoundary>
       <ThemeTransitionLayer timeValue={timeValue} />
+      <AtmosphereLayer timeValue={timeValue} />
+      <CinematicIntro />
 
       {/* ── UI Layer ── */}
-      <div className="pointer-events-none absolute inset-0 z-20">
+      <div
+        data-intro-stagger
+        className="pointer-events-none absolute inset-0 z-20"
+      >
         {/* ── Top row ── */}
-        <div className="absolute top-4 right-4 left-4 flex items-start justify-between">
+        <div
+          className="absolute top-4 right-4 left-4 flex items-start justify-between"
+          style={{ "--intro-delay": "1.0s" } as CSSProperties}
+        >
           {/* Top-left: Search */}
           <SearchBox />
 
@@ -173,12 +183,18 @@ export default function HomePage() {
         </div>
 
         {/* ── Left: LocationList ── */}
-        <div className="absolute inset-y-0 left-0" style={{ top: 72 }}>
+        <div
+          className="absolute inset-y-0 left-0"
+          style={{ top: 72, "--intro-delay": "1.25s" } as CSSProperties}
+        >
           <LocationList />
         </div>
 
         {/* ── Bottom row ── */}
-        <div className="absolute right-4 bottom-4 left-4 flex items-end justify-between">
+        <div
+          className="absolute right-4 bottom-4 left-4 flex items-end justify-between"
+          style={{ "--intro-delay": "1.4s" } as CSSProperties}
+        >
           {/* Bottom-left: Settings */}
           <SettingButton />
 

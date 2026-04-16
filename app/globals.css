@@ -184,7 +184,44 @@ html {
   }
 }
 
-/* Performance: shorten CSS transitions while time slider is being dragged */
-[data-time-dragging] [data-theme-overlay] {
+/* Performance: shorten CSS transitions while time slider is being dragged
+   OR while the map camera is actively moving. Atmosphere/tint layers stop
+   interpolating so the compositor can focus on the map. */
+[data-time-dragging] [data-theme-overlay],
+[data-map-moving] [data-theme-overlay] {
   transition-duration: 0.08s !important;
 }
+
+/* Kill the film grain layer entirely during map interaction — it's a
+   full-screen paint on top of a WebGL canvas, which is the single most
+   expensive passive overlay we have. */
+[data-map-moving] .cinematic-grain {
+  opacity: 0 !important;
+}
+
+/* ── Cinematic intro: staggered UI reveal ──
+   First-visit only; driven by <CinematicIntro>. */
+@keyframes intro-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+[data-intro-stagger] > * {
+  animation: intro-fade-up 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--intro-delay, 1.1s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-intro-stagger] > * {
+    animation: none !important;
+  }
+}
+

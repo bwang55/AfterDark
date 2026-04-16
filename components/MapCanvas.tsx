@@ -126,6 +126,14 @@ function ensurePlaceLayers(map: Map, mobile = false): void {
     });
   }
 
+  // Open-only filter — glow & pulse never touch closed venues, making the
+  // open/closed distinction immediate at a glance.
+  const openOnlyFilter: FilterSpecification = [
+    "==",
+    ["get", "openNow"],
+    1,
+  ];
+
   // Mobile: skip pulse layer entirely — saves one full circle layer of GPU work
   if (!mobile && !map.getLayer(PLACE_PULSE_LAYER_ID)) {
     map.addLayer({
@@ -133,6 +141,7 @@ function ensurePlaceLayers(map: Map, mobile = false): void {
       type: "circle",
       source: PLACE_SOURCE_ID,
       layout: { "circle-sort-key": 0 },
+      filter: openOnlyFilter,
       paint: {
         "circle-radius": pulseRadiusExpression(0.8),
         "circle-color": "#A5F3FC",
@@ -152,6 +161,7 @@ function ensurePlaceLayers(map: Map, mobile = false): void {
       type: "circle",
       source: PLACE_SOURCE_ID,
       layout: { "circle-sort-key": 0 },
+      filter: openOnlyFilter,
       paint: {
         // Mobile: smaller radius + less blur = cheaper GPU fill
         "circle-radius": mobile
@@ -181,12 +191,19 @@ function ensurePlaceLayers(map: Map, mobile = false): void {
         "circle-color": "#22D3EE",
         "circle-stroke-width": 1.2,
         "circle-stroke-color": "rgba(255,255,255,0.96)",
+        // Closed venues read as "still there, but quiet" — same dot, just faded.
         "circle-stroke-opacity": [
-          "max",
-          0.72,
-          ["*", 0.92, ["coalesce", ["get", "visibility"], 0.8]],
+          "case",
+          ["==", ["get", "openNow"], 1],
+          ["max", 0.72, ["*", 0.92, ["coalesce", ["get", "visibility"], 0.8]]],
+          0.35,
         ],
-        "circle-opacity": ["max", 0.68, ["coalesce", ["get", "visibility"], 0.8]],
+        "circle-opacity": [
+          "case",
+          ["==", ["get", "openNow"], 1],
+          ["max", 0.68, ["coalesce", ["get", "visibility"], 0.8]],
+          0.28,
+        ],
         "circle-emissive-strength": 1,
         "circle-pitch-alignment": "viewport",
         "circle-opacity-transition": { duration: 360, delay: 0 },
@@ -210,9 +227,51 @@ function ensurePlaceLayers(map: Map, mobile = false): void {
         "circle-emissive-strength": 1,
         "circle-pitch-alignment": "viewport",
         "circle-opacity-transition": { duration: 220, delay: 0 },
+        "circle-blur-transition": { duration: 600, delay: 0 },
       },
       filter: ["==", ["get", "id"], "__none__"],
     });
+  }
+}
+
+// A slow bloom on the active layer when a place is selected. The ring eases
+// up to peak, then settles over ~1s — reads as "the frame breathing around
+// the subject" rather than a hard flash. Pure paint-prop, no new layers.
+function triggerBloomPulse(map: Map): void {
+  if (!map.getLayer(PLACE_ACTIVE_LAYER_ID)) return;
+  try {
+    // Ensure long, gentle transitions both directions so the peak feels lifted,
+    // not snapped. These are idempotent — set once per pulse.
+    map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-opacity-transition", {
+      duration: 420,
+      delay: 0,
+    });
+    map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-blur-transition", {
+      duration: 520,
+      delay: 0,
+    });
+    map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-opacity", 0.86);
+    map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-blur", 1.6);
+    window.setTimeout(() => {
+      if (!map.getLayer(PLACE_ACTIVE_LAYER_ID)) return;
+      try {
+        // Slightly slower release than attack — the hallmark of "premium" UI motion.
+        map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-opacity-transition", {
+          duration: 640,
+          delay: 0,
+        });
+        map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-blur-transition", {
+          duration: 780,
+          delay: 0,
+        });
+        map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-opacity", 0.36);
+        map.setPaintProperty(PLACE_ACTIVE_LAYER_ID, "circle-blur", 0.7);
+      } catch {
+        /* map torn down mid-flight */
+      }
+    }, 460);
+  } catch {
+    /* layer missing / style still loading */
   }
 }
 
@@ -881,6 +940,52 @@ const MapCanvasInner = function MapCanvas({
     };
   }, [mapEnabled]);
 
+  // Mark body[data-map-moving] during drag/zoom/rotate/pitch so CSS can strip
+  // expensive atmospheric passes (film grain, overlay transitions) during
+  // camera motion and restore them on settle.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapEnabled || !map) return;
+
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    const markMoving = () => {
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+      document.body.dataset.mapMoving = "1";
+    };
+    const markSettled = () => {
+      // Small trailing delay so fingers-off-trackpad momentum still counts as moving.
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        delete document.body.dataset.mapMoving;
+      }, 120);
+    };
+
+    map.on("movestart", markMoving);
+    map.on("zoomstart", markMoving);
+    map.on("rotatestart", markMoving);
+    map.on("pitchstart", markMoving);
+    map.on("moveend", markSettled);
+    map.on("zoomend", markSettled);
+    map.on("rotateend", markSettled);
+    map.on("pitchend", markSettled);
+
+    return () => {
+      if (settleTimer) clearTimeout(settleTimer);
+      map.off("movestart", markMoving);
+      map.off("zoomstart", markMoving);
+      map.off("rotatestart", markMoving);
+      map.off("pitchstart", markMoving);
+      map.off("moveend", markSettled);
+      map.off("zoomend", markSettled);
+      map.off("rotateend", markSettled);
+      map.off("pitchend", markSettled);
+      delete document.body.dataset.mapMoving;
+    };
+  }, [mapEnabled]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded() || !mapLoaded) {
@@ -1245,7 +1350,7 @@ const MapCanvasInner = function MapCanvas({
       if (clipSrc) clipSrc.setData(clipCircleGeoJson(focusCoordinates));
 
       if (selectedPlaceId) {
-        const flyDuration = 1600;
+        const flyDuration = 1900;
         map.flyTo({
           center: [focusCoordinates.lng, focusCoordinates.lat] as LngLatLike,
           zoom: 18.2,
@@ -1253,7 +1358,10 @@ const MapCanvasInner = function MapCanvas({
           bearing: map.getBearing() - 16,
           duration: flyDuration,
           essential: true,
-          curve: 0.8,
+          // Gentler arc — slight pullback, then a long deceleration into the subject.
+          curve: 1.2,
+          // easeOutQuint: long tail, no bounce. Reads as "controlled landing".
+          easing: (t) => 1 - Math.pow(1 - t, 5),
         });
 
         const targetId = selectedPlaceId;
@@ -1261,6 +1369,13 @@ const MapCanvasInner = function MapCanvas({
           focusCoordinates.lng,
           focusCoordinates.lat,
         ];
+        // Pre-bloom: the frame "anticipates the landing" — the glow starts
+        // swelling just before the camera stops, rather than lagging behind it.
+        const preBloomTimer = window.setTimeout(() => {
+          if (selectedRef.current === targetId) {
+            triggerBloomPulse(map);
+          }
+        }, Math.max(0, flyDuration - 260));
         const onArrival = () => {
           if (selectedRef.current === targetId) {
             startOrbit(targetCenter, targetId);
@@ -1269,6 +1384,7 @@ const MapCanvasInner = function MapCanvas({
         map.once("moveend", onArrival);
 
         return () => {
+          clearTimeout(preBloomTimer);
           map.off("moveend", onArrival);
         };
       } else {
@@ -1277,9 +1393,10 @@ const MapCanvasInner = function MapCanvas({
           zoom: 17.2,
           pitch: 55,
           bearing: -12,
-          duration: 1400,
+          duration: 1600,
           essential: true,
-          curve: 0.8,
+          curve: 1.1,
+          easing: (t) => 1 - Math.pow(1 - t, 5),
         });
       }
       return;

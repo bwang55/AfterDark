@@ -13,18 +13,39 @@ export function LocationCard({ place }: { place: RankedPlace }) {
   const isLight = useThemeMode();
 
   const open = place.openNow;
-  const active = place.id === selectedPlaceId || place.id === hoveredPlaceId;
+  const isSelected = place.id === selectedPlaceId;
+  const isHovered = place.id === hoveredPlaceId;
+  const active = isSelected || isHovered;
+
+  // Focus transfer: when another card is being hovered (and it's not us, and
+  // we're not already selected), fall back into soft focus so the hovered
+  // card becomes the scene's subject.
+  const defocused =
+    hoveredPlaceId !== null && !isHovered && !isSelected;
 
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{
+        opacity: defocused ? 0.55 : 1,
+        y: 0,
+        filter: defocused ? "blur(2.5px)" : "blur(0px)",
+      }}
       exit={{ opacity: 0, y: -6 }}
+      whileHover={open ? { scale: 1.025, y: -2 } : undefined}
       transition={{ duration: 0.22, ease: [0.22, 0.68, 0, 1] }}
       onClick={() => open && setSelectedPlaceId(place.id)}
       onMouseEnter={() => setHoveredPlaceId(place.id)}
       onMouseLeave={() => setHoveredPlaceId(null)}
+      style={{
+        boxShadow: active
+          ? isLight
+            ? "0 8px 24px -12px rgba(14,165,233,0.35), 0 0 0 1px rgba(14,165,233,0.18)"
+            : "0 10px 28px -14px rgba(56,189,248,0.45), 0 0 24px -8px rgba(56,189,248,0.25)"
+          : "none",
+        willChange: defocused || active ? "filter, transform" : "auto",
+      }}
       className={`rounded-xl border p-3 transition-colors duration-200 ${open ? "cursor-pointer" : "cursor-default opacity-60"} ${
         active
           ? isLight
