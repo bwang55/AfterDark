@@ -1056,6 +1056,7 @@ const MapCanvasInner = function MapCanvas({
 
     const { lng, lat } = place.coordinates;
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&ll=${lat},${lng}`;
+    const appleMapsUrl = `https://maps.apple.com/?q=${encodeURIComponent(place.name)}&ll=${lat},${lng}`;
 
     // Build popup DOM — no innerHTML to avoid injection
     const root = document.createElement("div");
@@ -1115,6 +1116,13 @@ const MapCanvasInner = function MapCanvas({
     btn.rel = "noopener noreferrer";
     btn.className = "ad-popup__gmaps";
     btn.textContent = "Open in Google Maps ↗";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const win = window.open(mapsUrl, "_blank", "noopener,noreferrer");
+      if (!win) {
+        window.open(appleMapsUrl, "_blank", "noopener,noreferrer");
+      }
+    });
     root.appendChild(btn);
 
     // Remove old popup WITHOUT triggering deselect (we're replacing, not closing)
