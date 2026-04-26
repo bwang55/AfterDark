@@ -71,6 +71,8 @@ function AtmosphereLayerInner({ timeValue }: AtmosphereLayerProps) {
 }
 
 export const AtmosphereLayer = memo(AtmosphereLayerInner, (prev, next) => {
-  // Only re-render when time crosses a meaningful threshold.
-  return Math.abs(prev.timeValue - next.timeValue) < 1.0;
+  // Match ThemeTransitionLayer's cadence — the light-leak colors drift with
+  // the clock, not with the hour boundary. 1.0hr left the atmosphere visibly
+  // stale relative to the HUD time.
+  return Math.abs(prev.timeValue - next.timeValue) < 0.15;
 });

@@ -561,6 +561,7 @@ const MapCanvasInner = function MapCanvas({
   const storeWalkingCircles = useAppStore((s) => s.walkingCircles);
   const storeViewMode = useAppStore((s) => s.viewMode);
   const storeCinemaMode = useAppStore((s) => s.cinemaMode);
+  const setMapReady = useAppStore((s) => s.setMapReady);
 
   // ── Cinema (immersive) mode orbit — separate from selection orbit ──
   const cinemaOrbitFrameRef = useRef<number | null>(null);
@@ -712,6 +713,8 @@ const MapCanvasInner = function MapCanvas({
     const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
     if (!token) {
       setMapEnabled(false);
+      // No map to wait for — release the loading curtain immediately.
+      setMapReady(true);
       return;
     }
 
@@ -743,10 +746,19 @@ const MapCanvasInner = function MapCanvas({
     } catch (err) {
       console.error("[MapCanvas] Failed to initialize map:", err);
       setMapEnabled(false);
+      // Map init failed — don't trap the user behind the loading curtain.
+      setMapReady(true);
       return;
     }
 
     mapRef.current = map;
+
+    // First idle = style loaded + first tile batch rendered. This is the
+    // earliest moment the map looks "settled" to the user; before this the
+    // curtain stays up to hide the loading flicker.
+    map.once("idle", () => {
+      setMapReady(true);
+    });
 
     const emitViewport = () => {
       if (orbitActiveRef.current) return;
@@ -911,7 +923,7 @@ const MapCanvasInner = function MapCanvas({
       mapRef.current = null;
       setMapEnabled(false);
     };
-  }, [onSelectPlace, stopOrbit]);
+  }, [onSelectPlace, stopOrbit, setMapReady]);
 
   // Pulse animation — skip entirely on mobile (pulse layer not added)
   useEffect(() => {
@@ -1018,10 +1030,15 @@ const MapCanvasInner = function MapCanvas({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !mapLoaded) {
+    if (!map || !mapLoaded) {
       return;
     }
 
+    // No isStyleLoaded() guard: it can flip false during setConfigProperty
+    // (e.g. lightPreset debounce firing right as new places arrive), which
+    // would silently swallow the update. If the source was torn down mid-
+    // reload, style.load will re-run syncCustomLayers and reseed from
+    // placesRef — so the worst case is a one-frame skip, not stale dots.
     const source = map.getSource(PLACE_SOURCE_ID) as GeoJSONSource | undefined;
     if (source) {
       source.setData(placesToGeoJson(places));

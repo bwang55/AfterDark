@@ -99,6 +99,8 @@ function ThemeTransitionLayerInner({
 }
 
 export const ThemeTransitionLayer = memo(ThemeTransitionLayerInner, (prev, next) => {
-  // Only re-render when timeValue changes by >= 1.0 hours
-  return Math.abs(prev.timeValue - next.timeValue) < 1.0;
+  // ~9 minutes. Tight enough that the overlay tracks the clock visibly,
+  // loose enough to skip the per-second re-renders the live ticker emits.
+  // Previously 1.0hr, which left the overlay up to an hour behind the HUD.
+  return Math.abs(prev.timeValue - next.timeValue) < 0.15;
 });

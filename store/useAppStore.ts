@@ -79,6 +79,11 @@ interface AppState {
   resetNorthCount: number;
   nowLocked: boolean;
 
+  // ── First-paint gate (not persisted): true once the map's first `idle`
+  // fires (style + initial tiles ready). Used by CinematicIntro to hold
+  // the loading curtain until the map is visually ready.
+  mapReady: boolean;
+
   // ── Cinema / Immersive mode (not persisted) ──
   cinemaMode: boolean;
 
@@ -120,6 +125,7 @@ interface AppActions {
   setDisplayMode: (m: AppState["displayMode"]) => void;
   setMapPitch: (p: number) => void;
   resetNorth: () => void;
+  setMapReady: (ready: boolean) => void;
   toggleWalkingCircles: () => void;
   toggleViewMode: () => void;
 
@@ -171,6 +177,8 @@ export const useAppStore = create<AppStore>()(
 
       resetNorthCount: 0,
       nowLocked: true,
+
+      mapReady: false,
 
       cinemaMode: false,
 
@@ -457,6 +465,7 @@ export const useAppStore = create<AppStore>()(
       setMapPitch: (p) => set({ mapPitch: Math.round(p) }),
       resetNorth: () =>
         set((s) => ({ resetNorthCount: s.resetNorthCount + 1 })),
+      setMapReady: (ready) => set({ mapReady: ready }),
       toggleWalkingCircles: () =>
         set((s) => ({ walkingCircles: !s.walkingCircles })),
       toggleViewMode: () =>
